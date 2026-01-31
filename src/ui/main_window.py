@@ -90,8 +90,7 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.show_hud_btn)
 
         self.refresh_btn = QPushButton("Rafraichir")
-        self.refresh_btn.clicked.connect(self._refresh_stats)
-        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.clicked.connect(self._import_all_logs)
         self.refresh_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.refresh_btn)
 
@@ -228,8 +227,9 @@ class MainWindow(QMainWindow):
         self.start_btn.setText("Arreter le tracking")
         # Le bouton HUD reste grisé jusqu'à ce qu'il y ait des stats
         self.show_hud_btn.setEnabled(False)
-        self.refresh_btn.setEnabled(True)
-        self.table_only_checkbox.setEnabled(True)
+        # Force le mode "Table uniquement" pendant le tracking
+        self.table_only_checkbox.setChecked(True)
+        self.table_only_checkbox.setEnabled(False)
         self.status_bar.showMessage("Tracking actif - en attente de donnees...")
 
     def _stop_tracking(self) -> None:
@@ -241,9 +241,12 @@ class MainWindow(QMainWindow):
         self.is_tracking = False
         self.start_btn.setText("Demarrer le tracking")
         self.show_hud_btn.setEnabled(False)
-        self.refresh_btn.setEnabled(False)
-        self.table_only_checkbox.setEnabled(False)
-        self.table_only_checkbox.setChecked(False)  # Décoche et revient à "tous les joueurs"
+        # Réactive la checkbox et décoche pour afficher tous les joueurs
+        self.table_only_checkbox.setEnabled(True)
+        self.table_only_checkbox.setChecked(False)
+        # Rafraîchit l'affichage pour montrer tous les joueurs
+        self._all_stats = self.stats_db.get_all_players_stats()
+        self._refresh_table_display()
         self.status_bar.showMessage("Tracking arrete")
 
     def _toggle_hud(self) -> None:
@@ -267,30 +270,31 @@ class MainWindow(QMainWindow):
                 self.show_hud_btn.setText("Masquer HUD")
 
     def _refresh_stats(self) -> None:
-        """Force un rafraîchissement des stats."""
-        if self.log_watcher:
-            self.log_watcher.force_refresh()
-            self.status_bar.showMessage("Stats rafraichies")
+        """Force un rafraîchissement des stats (tous les joueurs)."""
+        # Charge toutes les stats de la DB
+        self._all_stats = self.stats_db.get_all_players_stats()
+        self._refresh_table_display()
+        self.status_bar.showMessage(f"Stats rafraichies: {len(self._all_stats)} joueurs")
 
     def _on_stats_updated(self, stats: dict[str, PlayerStats]) -> None:
-        """Appelé quand les stats sont mises à jour."""
-        # Cache les stats
-        self._all_stats = stats
+        """Appelé quand les stats sont mises à jour (joueurs de la table uniquement)."""
+        # Fusionne les stats des joueurs de la table dans le cache
+        for name, player_stats in stats.items():
+            self._all_stats[name] = player_stats
 
         # Met à jour la table avec le filtre actuel
         self._refresh_table_display()
 
-        # Active le bouton HUD quand il y a des stats de table exploitables
-        if self.is_tracking and self.log_watcher:
-            table_stats = self.log_watcher.get_table_stats()
-            has_data = any(s.total_hands > 0 for s in table_stats.values())
+        # Active le bouton HUD quand il y a des stats exploitables
+        if self.is_tracking:
+            has_data = any(s.total_hands > 0 for s in stats.values())
             if has_data and not self.show_hud_btn.isEnabled():
                 self.show_hud_btn.setEnabled(True)
                 self.status_bar.showMessage("Tracking actif")
 
-            # Le HUD n'affiche que les joueurs de la table actuelle
+            # Met à jour le HUD avec les stats de la table
             if self.hud and self.hud.is_visible():
-                self.hud.update_stats(table_stats)
+                self.hud.update_stats(stats)
 
     def _on_new_log(self, log_path: str) -> None:
         """Appelé quand un nouveau fichier de log est détecté."""

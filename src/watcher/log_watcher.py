@@ -188,9 +188,9 @@ class LogWatcher(QObject):
             self.current_table_players = new_players
             self.table_players_changed.emit(new_players)
 
-        # Émet le signal avec TOUTES les stats de la DB
-        all_db_stats = self.stats_db.get_all_players_stats()
-        self.stats_updated.emit(all_db_stats)
+        # Émet le signal avec les stats des joueurs de la TABLE uniquement
+        table_stats = self.get_table_stats()
+        self.stats_updated.emit(table_stats)
 
     def get_current_stats(self) -> dict[str, PlayerStats]:
         """Récupère les stats de tous les joueurs de la DB."""
