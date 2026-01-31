@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QGroupBox, QStatusBar,
     QMessageBox, QProgressDialog, QCheckBox
 )
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, QThread
 from PyQt6.QtGui import QAction
 
 
@@ -39,9 +39,16 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = QSettings("PokerTHTracker", "PTHTracker")
         self.stats_db = StatsDB(STATS_DB_PATH)
+        self._watcher_thread: QThread | None = None
         self.log_watcher: LogWatcher | None = None
         self.hud: HUDManager | None = None
         self.is_tracking = False
+        # Flag pour savoir si le HUD attend des stats
+        self._hud_waiting_for_stats = False
+        # Thread et watcher temporaires pour l'import
+        self._import_thread: QThread | None = None
+        self._import_watcher: LogWatcher | None = None
+        self._import_progress: QProgressDialog | None = None
         # Cache des stats et joueurs de la table pour le filtrage
         self._all_stats: dict[str, PlayerStats] = {}
         self._table_players: list[str] = []
@@ -90,7 +97,8 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.show_hud_btn)
 
         self.refresh_btn = QPushButton("Rafraichir")
-        self.refresh_btn.clicked.connect(self._import_all_logs)
+        self.refresh_btn.clicked.connect(self._refresh_stats)
+        self.refresh_btn.setEnabled(False)
         self.refresh_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.refresh_btn)
 
@@ -217,36 +225,58 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.log_watcher = LogWatcher(self.log_dir, self.stats_db, self)
+        # Crée le thread pour le watcher
+        self._watcher_thread = QThread(self)
+
+        # Crée le watcher SANS parent (nécessaire pour moveToThread)
+        self.log_watcher = LogWatcher(self.log_dir, self.stats_db)
+
+        # Déplace le watcher dans le thread
+        self.log_watcher.moveToThread(self._watcher_thread)
+
+        # Connecte les signaux existants
         self.log_watcher.stats_updated.connect(self._on_stats_updated)
         self.log_watcher.new_log_detected.connect(self._on_new_log)
         self.log_watcher.table_players_changed.connect(self._on_table_changed)
-        self.log_watcher.start()
+
+        # Connecte les nouveaux signaux pour les appels asynchrones
+        self.log_watcher.table_stats_ready.connect(self._on_table_stats_ready)
+
+        # Démarre le watcher quand le thread démarre
+        self._watcher_thread.started.connect(self.log_watcher.start)
+
+        # Démarre le thread
+        self._watcher_thread.start()
 
         self.is_tracking = True
         self.start_btn.setText("Arreter le tracking")
         # Le bouton HUD reste grisé jusqu'à ce qu'il y ait des stats
         self.show_hud_btn.setEnabled(False)
-        # Force le mode "Table uniquement" pendant le tracking
-        self.table_only_checkbox.setChecked(True)
-        self.table_only_checkbox.setEnabled(False)
+        self.refresh_btn.setEnabled(True)
+        self.table_only_checkbox.setEnabled(True)
         self.status_bar.showMessage("Tracking actif - en attente de donnees...")
 
     def _stop_tracking(self) -> None:
         """Arrête le tracking."""
         if self.log_watcher:
+            # Appelle stop() via le signal (thread-safe)
             self.log_watcher.stop()
-            self.log_watcher = None
+
+        if self._watcher_thread:
+            # Demande au thread de quitter
+            self._watcher_thread.quit()
+            # Attend la fin du thread (avec timeout)
+            self._watcher_thread.wait(3000)
+            self._watcher_thread = None
+
+        self.log_watcher = None
 
         self.is_tracking = False
         self.start_btn.setText("Demarrer le tracking")
         self.show_hud_btn.setEnabled(False)
-        # Réactive la checkbox et décoche pour afficher tous les joueurs
-        self.table_only_checkbox.setEnabled(True)
-        self.table_only_checkbox.setChecked(False)
-        # Rafraîchit l'affichage pour montrer tous les joueurs
-        self._all_stats = self.stats_db.get_all_players_stats()
-        self._refresh_table_display()
+        self.refresh_btn.setEnabled(False)
+        self.table_only_checkbox.setEnabled(False)
+        self.table_only_checkbox.setChecked(False)  # Décoche et revient à "tous les joueurs"
         self.status_bar.showMessage("Tracking arrete")
 
     def _toggle_hud(self) -> None:
@@ -254,10 +284,10 @@ class MainWindow(QMainWindow):
         if self.hud is None:
             self.hud = HUDManager()
 
-            # Met à jour le HUD avec les stats des joueurs de la table actuelle
+            # Demande les stats de manière asynchrone
             if self.log_watcher:
-                stats = self.log_watcher.get_table_stats()
-                self.hud.update_stats(stats)
+                self._hud_waiting_for_stats = True
+                self.log_watcher.request_table_stats()
 
             self.hud.show()
             self.show_hud_btn.setText("Masquer HUD")
@@ -270,31 +300,42 @@ class MainWindow(QMainWindow):
                 self.show_hud_btn.setText("Masquer HUD")
 
     def _refresh_stats(self) -> None:
-        """Force un rafraîchissement des stats (tous les joueurs)."""
-        # Charge toutes les stats de la DB
-        self._all_stats = self.stats_db.get_all_players_stats()
-        self._refresh_table_display()
-        self.status_bar.showMessage(f"Stats rafraichies: {len(self._all_stats)} joueurs")
+        """Force un rafraîchissement des stats."""
+        if self.log_watcher:
+            self.log_watcher.force_refresh()
+            self.status_bar.showMessage("Stats rafraichies")
 
     def _on_stats_updated(self, stats: dict[str, PlayerStats]) -> None:
-        """Appelé quand les stats sont mises à jour (joueurs de la table uniquement)."""
-        # Fusionne les stats des joueurs de la table dans le cache
-        for name, player_stats in stats.items():
-            self._all_stats[name] = player_stats
+        """Appelé quand les stats sont mises à jour."""
+        # Cache les stats
+        self._all_stats = stats
 
         # Met à jour la table avec le filtre actuel
         self._refresh_table_display()
 
-        # Active le bouton HUD quand il y a des stats exploitables
+        # Demande les stats de la table de manière asynchrone
+        if self.is_tracking and self.log_watcher:
+            self.log_watcher.request_table_stats()
+
+    def _on_table_stats_ready(self, table_stats: dict[str, PlayerStats]) -> None:
+        """Appelé quand les stats de la table sont prêtes (appel asynchrone)."""
+        # Gère le flag d'attente du HUD
+        if self._hud_waiting_for_stats:
+            self._hud_waiting_for_stats = False
+            if self.hud:
+                self.hud.update_stats(table_stats)
+            return
+
+        # Active le bouton HUD quand il y a des stats de table exploitables
         if self.is_tracking:
-            has_data = any(s.total_hands > 0 for s in stats.values())
+            has_data = any(s.total_hands > 0 for s in table_stats.values())
             if has_data and not self.show_hud_btn.isEnabled():
                 self.show_hud_btn.setEnabled(True)
                 self.status_bar.showMessage("Tracking actif")
 
-            # Met à jour le HUD avec les stats de la table
+            # Le HUD n'affiche que les joueurs de la table actuelle
             if self.hud and self.hud.is_visible():
-                self.hud.update_stats(stats)
+                self.hud.update_stats(table_stats)
 
     def _on_new_log(self, log_path: str) -> None:
         """Appelé quand un nouveau fichier de log est détecté."""
@@ -403,6 +444,15 @@ class MainWindow(QMainWindow):
 
     def _import_all_logs(self) -> None:
         """Importe tous les fichiers .pdb du dossier de logs."""
+        # Vérifie qu'un import n'est pas déjà en cours
+        if self._import_thread is not None:
+            QMessageBox.warning(
+                self,
+                "Import",
+                "Un import est deja en cours."
+            )
+            return
+
         # Compte les fichiers
         pdb_files = list(self.log_dir.glob("pokerth-log-*.pdb"))
         if not pdb_files:
@@ -425,49 +475,83 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # Crée un watcher temporaire pour l'import
-        temp_watcher = LogWatcher(self.log_dir, self.stats_db)
+        # Crée le thread pour l'import
+        self._import_thread = QThread(self)
+
+        # Crée un watcher temporaire (SANS parent pour moveToThread)
+        self._import_watcher = LogWatcher(self.log_dir, self.stats_db)
+        self._import_watcher.moveToThread(self._import_thread)
+
+        # Connecte les signaux de progrès et de fin
+        self._import_watcher.import_progress.connect(self._on_import_progress)
+        self._import_watcher.import_finished.connect(self._on_import_finished)
+        self._import_watcher.import_error.connect(self._on_import_error)
+
+        # Démarre l'import quand le thread démarre
+        self._import_thread.started.connect(self._import_watcher.request_import_all_logs)
 
         # Progress dialog
-        progress = QProgressDialog(
+        self._import_progress = QProgressDialog(
             "Import en cours...", "Annuler", 0, len(pdb_files), self
         )
-        progress.setWindowTitle("Import de l'historique")
-        progress.setModal(True)
-        progress.show()
+        self._import_progress.setWindowTitle("Import de l'historique")
+        self._import_progress.setModal(True)
+        self._import_progress.canceled.connect(self._on_import_canceled)
+        self._import_progress.show()
 
-        def on_progress(current: int, total: int, filename: str) -> None:
-            if progress.wasCanceled():
-                return
-            progress.setValue(current)
-            progress.setLabelText(f"Import: {filename}")
-            # Force le traitement des événements Qt
-            from PyQt6.QtWidgets import QApplication
-            QApplication.processEvents()
+        # Démarre le thread
+        self._import_thread.start()
 
-        try:
-            imported = temp_watcher.import_all_logs(on_progress)
-            progress.close()
+    def _on_import_progress(self, current: int, total: int, filename: str) -> None:
+        """Appelé lors de la progression de l'import."""
+        if self._import_progress:
+            self._import_progress.setMaximum(total)
+            self._import_progress.setValue(current)
+            self._import_progress.setLabelText(f"Import: {filename}")
 
-            # Rafraîchit l'affichage
-            self._all_stats = self.stats_db.get_all_players_stats()
-            self._refresh_table_display()
+    def _on_import_finished(self, imported: int, stats: dict[str, PlayerStats]) -> None:
+        """Appelé quand l'import est terminé."""
+        self._cleanup_import()
 
-            QMessageBox.information(
-                self,
-                "Import termine",
-                f"{imported} fichiers importes avec succes.\n"
-                f"{len(self._all_stats)} joueurs dans la base."
-            )
-            self.status_bar.showMessage(f"Import termine: {imported} fichiers")
+        # Rafraîchit l'affichage (les stats viennent du thread de l'import)
+        self._all_stats = stats
+        self._refresh_table_display()
 
-        except Exception as e:
-            progress.close()
-            QMessageBox.warning(
-                self,
-                "Erreur",
-                f"Erreur lors de l'import:\n{e}"
-            )
+        QMessageBox.information(
+            self,
+            "Import termine",
+            f"{imported} fichiers importes avec succes.\n"
+            f"{len(self._all_stats)} joueurs dans la base."
+        )
+        self.status_bar.showMessage(f"Import termine: {imported} fichiers")
+
+    def _on_import_error(self, error: str) -> None:
+        """Appelé en cas d'erreur lors de l'import."""
+        self._cleanup_import()
+
+        QMessageBox.warning(
+            self,
+            "Erreur",
+            f"Erreur lors de l'import:\n{error}"
+        )
+
+    def _on_import_canceled(self) -> None:
+        """Appelé quand l'utilisateur annule l'import."""
+        self._cleanup_import()
+        self.status_bar.showMessage("Import annule")
+
+    def _cleanup_import(self) -> None:
+        """Nettoie les ressources d'import."""
+        if self._import_progress:
+            self._import_progress.close()
+            self._import_progress = None
+
+        if self._import_thread:
+            self._import_thread.quit()
+            self._import_thread.wait(3000)
+            self._import_thread = None
+
+        self._import_watcher = None
 
     def _open_hud_settings(self) -> None:
         """Ouvre la fenêtre de configuration du HUD."""
@@ -475,9 +559,9 @@ class MainWindow(QMainWindow):
         if dialog.exec() and self.hud:
             # Rafraîchit le HUD avec les nouveaux paramètres
             self.hud.reload_settings()
+            # Demande les stats de manière asynchrone
             if self.log_watcher:
-                table_stats = self.log_watcher.get_table_stats()
-                self.hud.update_stats(table_stats)
+                self.log_watcher.request_table_stats()
 
     def _show_about(self) -> None:
         """Affiche la boîte de dialogue À propos."""

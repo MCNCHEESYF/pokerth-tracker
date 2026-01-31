@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Callable
 
-from PyQt6.QtCore import QObject, pyqtSignal, QFileSystemWatcher, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QFileSystemWatcher, QTimer
 
 from ..database.log_parser import LogParser
 from ..database.stats_db import StatsDB
@@ -23,6 +23,12 @@ class LogWatcher(QObject):
 
     # Signal émis quand les joueurs de la table changent
     table_players_changed = pyqtSignal(list)  # list[str]
+
+    # Signaux de résultat (pour les appels asynchrones depuis un autre thread)
+    table_stats_ready = pyqtSignal(dict)  # Résultat de get_table_stats()
+    import_progress = pyqtSignal(int, int, str)  # Progrès import (current, total, filename)
+    import_finished = pyqtSignal(int, dict)  # Résultat import (nombre de fichiers, stats)
+    import_error = pyqtSignal(str)  # Erreur lors de l'import
 
     def __init__(
         self,
@@ -48,20 +54,29 @@ class LogWatcher(QObject):
         # Stats calculées pour le fichier actuel (pour calculer les deltas)
         self._current_file_stats: dict[str, PlayerStats] = {}
 
-        # Watcher Qt pour les fichiers
-        self._file_watcher = QFileSystemWatcher(self)
-        self._file_watcher.directoryChanged.connect(self._on_directory_changed)
-        self._file_watcher.fileChanged.connect(self._on_file_changed)
+        # Watcher Qt pour les fichiers (créé dans start() pour être dans le bon thread)
+        self._file_watcher: QFileSystemWatcher | None = None
 
-        # Timer pour vérifications périodiques (certaines modifications échappent au watcher)
-        self._poll_timer = QTimer(self)
-        self._poll_timer.timeout.connect(self._poll_for_changes)
+        # Timer pour vérifications périodiques (créé dans start() pour être dans le bon thread)
+        self._poll_timer: QTimer | None = None
         self._poll_interval = 2000  # 2 secondes
 
+    @pyqtSlot()
     def start(self) -> None:
         """Démarre la surveillance."""
         if not self.log_dir.exists():
             self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Crée le watcher Qt (doit être créé dans le thread où il sera utilisé)
+        if self._file_watcher is None:
+            self._file_watcher = QFileSystemWatcher(self)
+            self._file_watcher.directoryChanged.connect(self._on_directory_changed)
+            self._file_watcher.fileChanged.connect(self._on_file_changed)
+
+        # Crée le timer (doit être créé dans le thread où il sera utilisé)
+        if self._poll_timer is None:
+            self._poll_timer = QTimer(self)
+            self._poll_timer.timeout.connect(self._poll_for_changes)
 
         # Surveille le répertoire
         self._file_watcher.addPath(str(self.log_dir))
@@ -72,12 +87,18 @@ class LogWatcher(QObject):
         # Démarre le polling
         self._poll_timer.start(self._poll_interval)
 
+    @pyqtSlot()
     def stop(self) -> None:
         """Arrête la surveillance."""
-        self._poll_timer.stop()
-        if self.current_log:
-            self._file_watcher.removePath(str(self.current_log))
-        self._file_watcher.removePath(str(self.log_dir))
+        if self._poll_timer:
+            self._poll_timer.stop()
+        if self._file_watcher:
+            if self.current_log:
+                self._file_watcher.removePath(str(self.current_log))
+            self._file_watcher.removePath(str(self.log_dir))
+        # Ferme proprement la connexion au fichier de log
+        if self.parser:
+            self.parser.close()
 
     def _find_current_log(self) -> None:
         """Trouve le fichier de log le plus récent."""
@@ -93,26 +114,29 @@ class LogWatcher(QObject):
 
     def _switch_to_log(self, log_path: Path) -> None:
         """Change vers un nouveau fichier de log."""
+        # Ferme l'ancien parser si existant
+        if self.parser:
+            self.parser.close()
+
         # Retire l'ancien du watcher
-        if self.current_log:
+        if self.current_log and self._file_watcher:
             self._file_watcher.removePath(str(self.current_log))
 
         self.current_log = log_path
-        self._file_watcher.addPath(str(log_path))
+        if self._file_watcher:
+            self._file_watcher.addPath(str(log_path))
 
         # Initialise le parser
         self.parser = LogParser(log_path)
         self.calculator = StatsCalculator(self.parser)
 
-        # Récupère le dernier ActionID traité
-        self.last_action_id = self.stats_db.get_last_processed_action(str(log_path))
-
-        # Calcule les stats actuelles du fichier (pour les deltas futurs)
-        self._current_file_stats = self.calculator.calculate_all_players_stats()
+        # Reset pour traiter tout le fichier (pas de fusion DB)
+        self.last_action_id = 0
+        self._current_file_stats = {}
 
         self.new_log_detected.emit(str(log_path))
 
-        # Process initial (va émettre les stats de la DB)
+        # Process initial pour charger les stats du fichier
         self._process_updates()
 
     def _on_directory_changed(self, path: str) -> None:
@@ -131,56 +155,23 @@ class LogWatcher(QObject):
             self._process_updates()
 
     def _process_updates(self) -> None:
-        """Traite les nouvelles données et met à jour les stats."""
+        """Traite les nouvelles données de la table en cours (sans fusion DB)."""
         if not self.parser or not self.calculator:
             return
+
+        # Rafraîchit la connexion pour voir les nouvelles données
+        self.parser.refresh()
 
         # Vérifie s'il y a de nouvelles actions
         current_max_action = self.parser.get_last_processed_action_id()
         if current_max_action <= self.last_action_id:
             return
 
-        # Recalcule les stats de TOUS les joueurs du fichier
-        new_stats = self.calculator.calculate_all_players_stats()
+        # Calcule les stats du fichier actuel uniquement (pas de fusion DB)
+        self._current_file_stats = self.calculator.calculate_all_players_stats()
 
-        # Calcule les DELTAS (nouvelles stats - anciennes stats du fichier)
-        # et fusionne avec les stats existantes dans la DB
-        for player_name, stats in new_stats.items():
-            old_stats = self._current_file_stats.get(player_name)
-            if old_stats:
-                # Calcule le delta
-                delta = PlayerStats(
-                    player_name=player_name,
-                    total_hands=stats.total_hands - old_stats.total_hands,
-                    vpip_hands=stats.vpip_hands - old_stats.vpip_hands,
-                    pfr_hands=stats.pfr_hands - old_stats.pfr_hands,
-                    total_bets=stats.total_bets - old_stats.total_bets,
-                    total_calls=stats.total_calls - old_stats.total_calls,
-                    three_bet_opportunities=stats.three_bet_opportunities - old_stats.three_bet_opportunities,
-                    three_bet_made=stats.three_bet_made - old_stats.three_bet_made,
-                    cbet_opportunities=stats.cbet_opportunities - old_stats.cbet_opportunities,
-                    cbet_made=stats.cbet_made - old_stats.cbet_made,
-                    fold_to_3bet_opportunities=stats.fold_to_3bet_opportunities - old_stats.fold_to_3bet_opportunities,
-                    fold_to_3bet_made=stats.fold_to_3bet_made - old_stats.fold_to_3bet_made,
-                    fold_to_cbet_opportunities=stats.fold_to_cbet_opportunities - old_stats.fold_to_cbet_opportunities,
-                    fold_to_cbet_made=stats.fold_to_cbet_made - old_stats.fold_to_cbet_made,
-                    hands_saw_flop=stats.hands_saw_flop - old_stats.hands_saw_flop,
-                    hands_went_to_showdown=stats.hands_went_to_showdown - old_stats.hands_went_to_showdown,
-                    showdowns_won=stats.showdowns_won - old_stats.showdowns_won,
-                )
-                # Fusionne le delta avec les stats de la DB
-                if delta.total_hands > 0:
-                    self.stats_db.merge_stats(delta)
-            else:
-                # Nouveau joueur dans ce fichier, fusionne directement
-                self.stats_db.merge_stats(stats)
-
-        # Met à jour les stats du fichier actuel
-        self._current_file_stats = new_stats
-
-        # Met à jour le dernier ActionID traité
+        # Met à jour le dernier ActionID traité (en mémoire seulement)
         self.last_action_id = current_max_action
-        self.stats_db.set_last_processed_action(str(self.current_log), current_max_action)
 
         # Vérifie si les joueurs de la table ont changé
         new_players = self.parser.get_current_table_players()
@@ -188,25 +179,24 @@ class LogWatcher(QObject):
             self.current_table_players = new_players
             self.table_players_changed.emit(new_players)
 
-        # Émet le signal avec les stats des joueurs de la TABLE uniquement
-        table_stats = self.get_table_stats()
-        self.stats_updated.emit(table_stats)
+        # Émet les stats du fichier actuel (session en cours uniquement)
+        self.stats_updated.emit(self._current_file_stats)
 
     def get_current_stats(self) -> dict[str, PlayerStats]:
         """Récupère les stats de tous les joueurs de la DB."""
         return self.stats_db.get_all_players_stats()
 
     def get_table_stats(self) -> dict[str, PlayerStats]:
-        """Récupère les stats des joueurs de la table actuelle."""
+        """Récupère les stats des joueurs de la table actuelle (session en cours)."""
         if not self.current_table_players:
             return {}
 
-        stats = {}
-        for player_name in self.current_table_players:
-            player_stats = self.stats_db.get_player_stats(player_name)
-            if player_stats:
-                stats[player_name] = player_stats
-        return stats
+        # Retourne les stats du fichier actuel pour les joueurs de la table
+        return {
+            name: stats
+            for name, stats in self._current_file_stats.items()
+            if name in self.current_table_players
+        }
 
     def force_refresh(self) -> None:
         """Force un rafraîchissement complet des stats."""
@@ -261,3 +251,23 @@ class LogWatcher(QObject):
             self.last_action_id = self.stats_db.get_last_processed_action(str(self.current_log))
 
         return imported
+
+    @pyqtSlot()
+    def request_table_stats(self) -> None:
+        """Calcule les stats de la table et émet table_stats_ready (appel asynchrone)."""
+        stats = self.get_table_stats()
+        self.table_stats_ready.emit(stats)
+
+    @pyqtSlot()
+    def request_import_all_logs(self) -> None:
+        """Importe tous les logs et émet les signaux de progression (appel asynchrone)."""
+        try:
+            def progress_callback(current: int, total: int, filename: str) -> None:
+                self.import_progress.emit(current, total, filename)
+
+            imported = self.import_all_logs(progress_callback)
+            # Récupère les stats dans ce thread (pas dans le thread UI)
+            all_stats = self.stats_db.get_all_players_stats()
+            self.import_finished.emit(imported, all_stats)
+        except Exception as e:
+            self.import_error.emit(str(e))

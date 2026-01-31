@@ -60,9 +60,12 @@ class StatsDB:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        """Crée une connexion."""
-        conn = sqlite3.connect(self.db_path)
+        """Crée une connexion thread-safe."""
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        # Active le mode WAL pour de meilleures performances multi-thread
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         return conn
 
     def _init_db(self) -> None:

@@ -241,9 +241,11 @@ class HUDContainer(QWidget):
         self.setWindowFlags(
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.Tool |
+            Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
         # Taille initiale grande pour couvrir l'ecran
         screen = QApplication.primaryScreen()
@@ -255,22 +257,26 @@ class HUDContainer(QWidget):
 
     def _on_drag_started(self, widget: PlayerHUDWidget, global_pos: QPoint) -> None:
         """Un widget commence a etre deplace."""
+        self._drag_start = global_pos
+        self._drag_widget = widget
         if self._grouped:
-            # Mode groupe: on deplace toute la fenetre
-            if self.windowHandle():
-                self.windowHandle().startSystemMove()
+            # Mode groupe: on sauvegarde la position de la fenetre
+            self._drag_widget_start_pos = self.pos()
         else:
-            # Mode individuel: on deplace le widget dans le conteneur
-            self._drag_start = global_pos
-            self._drag_widget = widget
+            # Mode individuel: on sauvegarde la position du widget
             self._drag_widget_start_pos = widget.pos()
 
     def _on_drag_moved(self, widget: PlayerHUDWidget, global_pos: QPoint) -> None:
         """Un widget est en cours de deplacement."""
-        if not self._grouped and self._drag_start and self._drag_widget == widget:
+        if self._drag_start and self._drag_widget == widget:
             delta = global_pos - self._drag_start
             new_pos = self._drag_widget_start_pos + delta
-            widget.move(new_pos)
+            if self._grouped:
+                # Mode groupe: deplace la fenetre entiere
+                self.move(new_pos)
+            else:
+                # Mode individuel: deplace le widget
+                widget.move(new_pos)
 
     def _on_drag_ended(self, widget: PlayerHUDWidget) -> None:
         """Fin du deplacement d'un widget."""
