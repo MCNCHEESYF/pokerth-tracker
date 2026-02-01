@@ -18,11 +18,6 @@ def main():
         description="PokerTH Tracker - Real-time HUD for PokerTH"
     )
     parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="Launch HUD in demo mode"
-    )
-    parser.add_argument(
         "--analyze",
         type=str,
         metavar="FILE",
@@ -44,14 +39,10 @@ def main():
     # Style global
     app.setStyle("Fusion")
 
-    if args.demo:
-        # Mode démo - juste le HUD
-        hud = create_demo_hud()
-        hud.show()
-    else:
-        # Mode normal - fenêtre principale
-        window = MainWindow()
-        window.show()
+   
+    # Mode normal - fenêtre principale
+    window = MainWindow()
+    window.show()
 
     return app.exec()
 
