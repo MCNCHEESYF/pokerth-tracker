@@ -73,10 +73,10 @@ class MainWindow(QMainWindow):
         config_group = QGroupBox("Configuration")
         config_layout = QHBoxLayout(config_group)
 
-        self.log_dir_label = QLabel(f"Dossier logs: {POKERTH_LOG_DIR}")
+        self.log_dir_label = QLabel(f"Log folder: {POKERTH_LOG_DIR}")
         config_layout.addWidget(self.log_dir_label, stretch=1)
 
-        self.browse_btn = QPushButton("Parcourir...")
+        self.browse_btn = QPushButton("Browse...")
         self.browse_btn.clicked.connect(self._browse_log_dir)
         config_layout.addWidget(self.browse_btn)
 
@@ -85,18 +85,18 @@ class MainWindow(QMainWindow):
         # Section contrôles
         controls_layout = QHBoxLayout()
 
-        self.start_btn = QPushButton("Demarrer le tracking")
+        self.start_btn = QPushButton("Start tracking")
         self.start_btn.clicked.connect(self._toggle_tracking)
         self.start_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.start_btn)
 
-        self.show_hud_btn = QPushButton("Afficher HUD")
+        self.show_hud_btn = QPushButton("Show HUD")
         self.show_hud_btn.clicked.connect(self._toggle_hud)
         self.show_hud_btn.setEnabled(False)
         self.show_hud_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.show_hud_btn)
 
-        self.refresh_btn = QPushButton("Rafraichir")
+        self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.clicked.connect(self._refresh_stats)
         self.refresh_btn.setEnabled(True)  # Toujours actif pour permettre l'import
         self.refresh_btn.setMinimumHeight(40)
@@ -106,8 +106,8 @@ class MainWindow(QMainWindow):
         controls_layout.addSpacing(20)
 
         # Toggle pour filtrer les joueurs
-        self.table_only_checkbox = QCheckBox("Table uniquement")
-        self.table_only_checkbox.setToolTip("Afficher uniquement les joueurs de la table actuelle")
+        self.table_only_checkbox = QCheckBox("Table only")
+        self.table_only_checkbox.setToolTip("Show only players from the current table")
         self.table_only_checkbox.stateChanged.connect(self._on_filter_changed)
         self.table_only_checkbox.setEnabled(False)  # Désactivé tant que le tracking n'est pas lancé
         controls_layout.addWidget(self.table_only_checkbox)
@@ -115,14 +115,14 @@ class MainWindow(QMainWindow):
         layout.addLayout(controls_layout)
 
         # Section stats
-        stats_group = QGroupBox("Statistiques des joueurs")
+        stats_group = QGroupBox("Player statistics")
         stats_layout = QVBoxLayout(stats_group)
 
         self.stats_table = QTableWidget()
         self.stats_table.setColumnCount(11)
         self.stats_table.setHorizontalHeaderLabels([
-            "Joueur", "VPIP%", "PFR%", "AF", "3-Bet%", "C-Bet%",
-            "F3B%", "FCB%", "WTSD%", "W$SD%", "Mains"
+            "Player", "VPIP%", "PFR%", "AF", "3-Bet%", "C-Bet%",
+            "F3B%", "FCB%", "WTSD%", "W$SD%", "Hands"
         ])
         self.stats_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for i in range(1, 11):
@@ -142,28 +142,28 @@ class MainWindow(QMainWindow):
         # Barre de statut
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Pret")
+        self.status_bar.showMessage("Ready")
 
     def _setup_menu(self) -> None:
         """Configure le menu."""
         menubar = self.menuBar()
 
         # Menu Fichier
-        file_menu = menubar.addMenu("&Fichier")
+        file_menu = menubar.addMenu("&File")
 
-        import_action = QAction("Importer l'historique...", self)
+        import_action = QAction("Import history...", self)
         import_action.triggered.connect(self._import_all_logs)
         file_menu.addAction(import_action)
 
         file_menu.addSeparator()
 
-        clear_action = QAction("Effacer les stats", self)
+        clear_action = QAction("Clear stats", self)
         clear_action.triggered.connect(self._clear_stats)
         file_menu.addAction(clear_action)
 
         file_menu.addSeparator()
 
-        quit_action = QAction("&Quitter", self)
+        quit_action = QAction("&Quit", self)
         quit_action.setShortcut("Ctrl+Q")
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
@@ -171,14 +171,14 @@ class MainWindow(QMainWindow):
         # Menu Options
         options_menu = menubar.addMenu("&Options")
 
-        hud_settings_action = QAction("Configurer le HUD...", self)
+        hud_settings_action = QAction("Configure HUD...", self)
         hud_settings_action.triggered.connect(self._open_hud_settings)
         options_menu.addAction(hud_settings_action)
 
         # Menu Aide
-        help_menu = menubar.addMenu("&Aide")
+        help_menu = menubar.addMenu("&Help")
 
-        about_action = QAction("A propos", self)
+        about_action = QAction("About", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
 
@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         """Charge les paramètres sauvegardés."""
         log_dir = self.settings.value("log_dir", str(POKERTH_LOG_DIR))
         self.log_dir = Path(log_dir)
-        self.log_dir_label.setText(f"Dossier logs: {self.log_dir}")
+        self.log_dir_label.setText(f"Log folder: {self.log_dir}")
 
         # Charge les stats existantes
         self._all_stats = self.stats_db.get_all_players_stats()
@@ -200,12 +200,12 @@ class MainWindow(QMainWindow):
         """Ouvre un dialogue pour sélectionner le dossier de logs."""
         dir_path = QFileDialog.getExistingDirectory(
             self,
-            "Sélectionner le dossier de logs PokerTH",
+            "Select PokerTH log folder",
             str(self.log_dir)
         )
         if dir_path:
             self.log_dir = Path(dir_path)
-            self.log_dir_label.setText(f"Dossier logs: {self.log_dir}")
+            self.log_dir_label.setText(f"Log folder: {self.log_dir}")
             self._save_settings()
 
     def _toggle_tracking(self) -> None:
@@ -220,8 +220,8 @@ class MainWindow(QMainWindow):
         if not self.log_dir.exists():
             QMessageBox.warning(
                 self,
-                "Erreur",
-                f"Le dossier de logs n'existe pas:\n{self.log_dir}"
+                "Error",
+                f"Log folder does not exist:\n{self.log_dir}"
             )
             return
 
@@ -249,13 +249,13 @@ class MainWindow(QMainWindow):
         self._watcher_thread.start()
 
         self.is_tracking = True
-        self.start_btn.setText("Arreter le tracking")
+        self.start_btn.setText("Stop tracking")
         # Le bouton HUD reste grisé jusqu'à ce qu'il y ait des stats
         self.show_hud_btn.setEnabled(False)
         self.table_only_checkbox.setEnabled(True)
         # Coche automatiquement "Table uniquement" pendant le tracking
         self.table_only_checkbox.setChecked(True)
-        self.status_bar.showMessage("Tracking actif - en attente de donnees...")
+        self.status_bar.showMessage("Tracking active - waiting for data...")
 
     def _stop_tracking(self) -> None:
         """Arrête le tracking."""
@@ -273,14 +273,14 @@ class MainWindow(QMainWindow):
         self.log_watcher = None
 
         self.is_tracking = False
-        self.start_btn.setText("Demarrer le tracking")
+        self.start_btn.setText("Start tracking")
         self.show_hud_btn.setEnabled(False)
         self.table_only_checkbox.setEnabled(False)
         self.table_only_checkbox.setChecked(False)  # Décoche et revient à "tous les joueurs"
         # Recharge les stats de la DB pour afficher tous les joueurs
         self._all_stats = self.stats_db.get_all_players_stats()
         self._refresh_table_display()
-        self.status_bar.showMessage("Tracking arrete")
+        self.status_bar.showMessage("Tracking stopped")
 
     def _toggle_hud(self) -> None:
         """Affiche/masque le HUD."""
@@ -293,14 +293,14 @@ class MainWindow(QMainWindow):
                 self.log_watcher.request_table_stats()
 
             self.hud.show()
-            self.show_hud_btn.setText("Masquer HUD")
+            self.show_hud_btn.setText("Hide HUD")
         else:
             if self.hud.is_visible():
                 self.hud.hide()
-                self.show_hud_btn.setText("Afficher HUD")
+                self.show_hud_btn.setText("Show HUD")
             else:
                 self.hud.show()
-                self.show_hud_btn.setText("Masquer HUD")
+                self.show_hud_btn.setText("Hide HUD")
 
     def _refresh_stats(self) -> None:
         """Déclenche l'import de tous les logs (même comportement que Importer l'historique)."""
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
             has_data = any(s.total_hands > 0 for s in table_stats.values())
             if has_data and not self.show_hud_btn.isEnabled():
                 self.show_hud_btn.setEnabled(True)
-                self.status_bar.showMessage("Tracking actif")
+                self.status_bar.showMessage("Tracking active")
 
             # Le HUD n'affiche que les joueurs de la table actuelle
             if self.hud and self.hud.is_visible():
@@ -345,7 +345,7 @@ class MainWindow(QMainWindow):
     def _on_table_changed(self, players: list[str]) -> None:
         """Appelé quand les joueurs de la table changent."""
         self._table_players = players
-        self.status_bar.showMessage(f"Table: {len(players)} joueurs")
+        self.status_bar.showMessage(f"Table: {len(players)} players")
         # Rafraîchit l'affichage si le filtre "table uniquement" est actif
         if self.table_only_checkbox.isChecked():
             self._refresh_table_display()
@@ -432,7 +432,7 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "Confirmation",
-            "Voulez-vous vraiment effacer toutes les statistiques ?",
+            "Do you really want to clear all statistics?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
             self.stats_table.setRowCount(0)
             if self.hud:
                 self.hud.clear()
-            self.status_bar.showMessage("Stats effacees")
+            self.status_bar.showMessage("Stats cleared")
 
     def _import_all_logs(self) -> None:
         """Importe tous les fichiers .pdb du dossier de logs."""
@@ -450,7 +450,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "Import",
-                "Un import est deja en cours."
+                "An import is already in progress."
             )
             return
 
@@ -460,16 +460,16 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Import",
-                f"Aucun fichier de log trouve dans:\n{self.log_dir}"
+                f"No log files found in:\n{self.log_dir}"
             )
             return
 
         # Confirmation
         reply = QMessageBox.question(
             self,
-            "Import de l'historique",
-            f"Importer {len(pdb_files)} fichiers de log ?\n\n"
-            "Les statistiques seront fusionnees avec les donnees existantes.",
+            "Import history",
+            f"Import {len(pdb_files)} log files?\n\n"
+            "Statistics will be merged with existing data.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
@@ -493,9 +493,9 @@ class MainWindow(QMainWindow):
 
         # Progress dialog
         self._import_progress = QProgressDialog(
-            "Import en cours...", "Annuler", 0, len(pdb_files), self
+            "Import in progress...", "Cancel", 0, len(pdb_files), self
         )
-        self._import_progress.setWindowTitle("Import de l'historique")
+        self._import_progress.setWindowTitle("Import history")
         self._import_progress.setModal(True)
         self._import_progress.canceled.connect(self._on_import_canceled)
         self._import_progress.show()
@@ -520,11 +520,11 @@ class MainWindow(QMainWindow):
 
         QMessageBox.information(
             self,
-            "Import termine",
-            f"{imported} fichiers importes avec succes.\n"
-            f"{len(self._all_stats)} joueurs dans la base."
+            "Import completed",
+            f"{imported} files imported successfully.\n"
+            f"{len(self._all_stats)} players in database."
         )
-        self.status_bar.showMessage(f"Import termine: {imported} fichiers")
+        self.status_bar.showMessage(f"Import completed: {imported} files")
 
     def _on_import_error(self, error: str) -> None:
         """Appelé en cas d'erreur lors de l'import."""
@@ -532,14 +532,14 @@ class MainWindow(QMainWindow):
 
         QMessageBox.warning(
             self,
-            "Erreur",
-            f"Erreur lors de l'import:\n{error}"
+            "Error",
+            f"Error during import:\n{error}"
         )
 
     def _on_import_canceled(self) -> None:
         """Appelé quand l'utilisateur annule l'import."""
         self._cleanup_import()
-        self.status_bar.showMessage("Import annule")
+        self.status_bar.showMessage("Import canceled")
 
     def _cleanup_import(self) -> None:
         """Nettoie les ressources d'import."""
@@ -568,9 +568,9 @@ class MainWindow(QMainWindow):
         """Affiche la boîte de dialogue À propos."""
         QMessageBox.about(
             self,
-            "A propos",
+            "About",
             "PokerTH Tracker v1.2\n\n"
-            "HUD temps reel pour PokerTH\n\n"
+            "Real-time HUD for PokerTH\n\n"
             "Stats: VPIP, PFR, AF, 3-Bet, C-Bet,\n"
             "Fold to 3-Bet, Fold to C-Bet, WTSD, W$SD"
         )

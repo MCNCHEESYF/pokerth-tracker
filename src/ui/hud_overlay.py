@@ -50,7 +50,7 @@ class PlayerHUDWidget(QFrame):
         self.group_btn = QPushButton("G")
         self.group_btn.setObjectName("groupBtn")
         self.group_btn.setFixedSize(18, 18)
-        self.group_btn.setToolTip("Grouper")
+        self.group_btn.setToolTip("Group")
         self.group_btn.clicked.connect(self.group_btn_clicked.emit)
         top_row.addWidget(self.group_btn)
 
@@ -183,7 +183,7 @@ class PlayerHUDWidget(QFrame):
         """Definit l'etat de groupement."""
         self._is_grouped = grouped
         self.group_btn.setText("U" if grouped else "G")
-        self.group_btn.setToolTip("Degrouper" if grouped else "Grouper")
+        self.group_btn.setToolTip("Ungroup" if grouped else "Group")
         self._apply_style()
 
     def update_stats(self, stats: PlayerStats) -> None:

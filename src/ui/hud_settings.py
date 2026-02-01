@@ -18,7 +18,7 @@ HUD_STATS = [
     ("fold_to_cbet", "FCB%", "Fold to C-Bet"),
     ("wtsd", "WTSD%", "Went To ShowDown"),
     ("wsd", "W$SD%", "Won $ at ShowDown"),
-    ("hands", "Mains", "Nombre de mains"),
+    ("hands", "Hands", "Number of hands"),
 ]
 
 # Stats activées par défaut
@@ -38,13 +38,13 @@ class HUDSettingsDialog(QDialog):
 
     def _setup_ui(self) -> None:
         """Configure l'interface."""
-        self.setWindowTitle("Configuration du HUD")
+        self.setWindowTitle("HUD Configuration")
         self.setMinimumWidth(300)
 
         layout = QVBoxLayout(self)
 
         # Groupe des stats
-        stats_group = QGroupBox("Stats a afficher")
+        stats_group = QGroupBox("Stats to display")
         stats_layout = QVBoxLayout(stats_group)
 
         for stat_id, stat_name, stat_desc in HUD_STATS:
@@ -57,8 +57,8 @@ class HUDSettingsDialog(QDialog):
 
         # Note
         note_label = QLabel(
-            "Note: Les stats seront organisees automatiquement\n"
-            "en lignes de 2 dans le HUD."
+            "Note: Stats will be automatically organized\n"
+            "in rows of 2 in the HUD."
         )
         note_label.setStyleSheet("color: gray; font-style: italic;")
         layout.addWidget(note_label)
@@ -66,17 +66,17 @@ class HUDSettingsDialog(QDialog):
         # Boutons
         buttons_layout = QHBoxLayout()
 
-        reset_btn = QPushButton("Reinitialiser")
+        reset_btn = QPushButton("Reset")
         reset_btn.clicked.connect(self._reset_defaults)
         buttons_layout.addWidget(reset_btn)
 
         buttons_layout.addStretch()
 
-        cancel_btn = QPushButton("Annuler")
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(cancel_btn)
 
-        save_btn = QPushButton("Enregistrer")
+        save_btn = QPushButton("Save")
         save_btn.setDefault(True)
         save_btn.clicked.connect(self._save_and_close)
         buttons_layout.addWidget(save_btn)

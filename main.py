@@ -15,18 +15,18 @@ from src.stats.calculator import calculate_stats_from_file
 def main():
     """Point d'entrée principal."""
     parser = argparse.ArgumentParser(
-        description="PokerTH Tracker - HUD temps réel pour PokerTH"
+        description="PokerTH Tracker - Real-time HUD for PokerTH"
     )
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="Lance le HUD en mode démo"
+        help="Launch HUD in demo mode"
     )
     parser.add_argument(
         "--analyze",
         type=str,
         metavar="FILE",
-        help="Analyse un fichier de log et affiche les stats"
+        help="Analyze a log file and display stats"
     )
 
     args = parser.parse_args()
@@ -57,34 +57,34 @@ def main():
 
 
 def analyze_log(log_path: str) -> None:
-    """Analyse un fichier de log et affiche les stats."""
+    """Analyze a log file and display stats."""
     path = Path(log_path)
     if not path.exists():
-        print(f"Erreur: Fichier introuvable: {log_path}")
+        print(f"Error: File not found: {log_path}")
         sys.exit(1)
 
-    print(f"Analyse de: {path.name}")
+    print(f"Analyzing: {path.name}")
     print("-" * 60)
 
     try:
         stats = calculate_stats_from_file(path)
     except Exception as e:
-        print(f"Erreur: {e}")
+        print(f"Error: {e}")
         sys.exit(1)
 
     if not stats:
-        print("Aucune donnée trouvée.")
+        print("No data found.")
         return
 
-    # Trie par nombre de mains
+    # Sort by number of hands
     sorted_stats = sorted(
         stats.values(),
         key=lambda s: s.total_hands,
         reverse=True
     )
 
-    # Affiche le tableau
-    print(f"{'Joueur':<20} {'VPIP':>7} {'PFR':>7} {'AF':>7} {'Mains':>7}")
+    # Display the table
+    print(f"{'Player':<20} {'VPIP':>7} {'PFR':>7} {'AF':>7} {'Hands':>7}")
     print("-" * 60)
 
     for player_stats in sorted_stats:
@@ -101,7 +101,7 @@ def analyze_log(log_path: str) -> None:
         )
 
     print("-" * 60)
-    print(f"Total: {len(stats)} joueurs")
+    print(f"Total: {len(stats)} players")
 
 
 if __name__ == "__main__":
