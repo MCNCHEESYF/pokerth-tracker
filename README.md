@@ -13,7 +13,7 @@ A PokerTH Tracker
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ocau/pokerth-tracker.git
+git clone https://github.com/MCNCHEESYF/pokerth-tracker.git
 cd pokerth-tracker
 ```
 
