@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QTableWidget,
     QTableWidgetItem, QHeaderView, QGroupBox, QStatusBar,
-    QMessageBox, QProgressDialog, QCheckBox
+    QMessageBox, QProgressDialog
 )
 from PyQt6.QtCore import Qt, QSettings, QThread
 from PyQt6.QtGui import QAction
@@ -96,21 +96,11 @@ class MainWindow(QMainWindow):
         self.show_hud_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.show_hud_btn)
 
-        self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn = QPushButton("Import")
         self.refresh_btn.clicked.connect(self._refresh_stats)
         self.refresh_btn.setEnabled(True)  # Toujours actif pour permettre l'import
         self.refresh_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.refresh_btn)
-
-        # Séparateur
-        controls_layout.addSpacing(20)
-
-        # Toggle pour filtrer les joueurs
-        self.table_only_checkbox = QCheckBox("Table only")
-        self.table_only_checkbox.setToolTip("Show only players from the current table")
-        self.table_only_checkbox.stateChanged.connect(self._on_filter_changed)
-        self.table_only_checkbox.setEnabled(False)  # Désactivé tant que le tracking n'est pas lancé
-        controls_layout.addWidget(self.table_only_checkbox)
 
         layout.addLayout(controls_layout)
 
@@ -252,9 +242,6 @@ class MainWindow(QMainWindow):
         self.start_btn.setText("Stop tracking")
         # Le bouton HUD reste grisé jusqu'à ce qu'il y ait des stats
         self.show_hud_btn.setEnabled(False)
-        self.table_only_checkbox.setEnabled(True)
-        # Coche automatiquement "Table uniquement" pendant le tracking
-        self.table_only_checkbox.setChecked(True)
         self.status_bar.showMessage("Tracking active - waiting for data...")
 
     def _stop_tracking(self) -> None:
@@ -275,8 +262,6 @@ class MainWindow(QMainWindow):
         self.is_tracking = False
         self.start_btn.setText("Start tracking")
         self.show_hud_btn.setEnabled(False)
-        self.table_only_checkbox.setEnabled(False)
-        self.table_only_checkbox.setChecked(False)  # Décoche et revient à "tous les joueurs"
         # Recharge les stats de la DB pour afficher tous les joueurs
         self._all_stats = self.stats_db.get_all_players_stats()
         self._refresh_table_display()
@@ -346,26 +331,10 @@ class MainWindow(QMainWindow):
         """Appelé quand les joueurs de la table changent."""
         self._table_players = players
         self.status_bar.showMessage(f"Table: {len(players)} players")
-        # Rafraîchit l'affichage si le filtre "table uniquement" est actif
-        if self.table_only_checkbox.isChecked():
-            self._refresh_table_display()
-
-    def _on_filter_changed(self, state: int) -> None:
-        """Appelé quand le filtre table/tous change."""
-        self._refresh_table_display()
 
     def _refresh_table_display(self) -> None:
-        """Rafraîchit l'affichage de la table avec le filtre actuel."""
-        if self.table_only_checkbox.isChecked() and self._table_players:
-            # Filtre pour n'afficher que les joueurs de la table
-            filtered_stats = {
-                name: stats for name, stats in self._all_stats.items()
-                if name in self._table_players
-            }
-            self._update_stats_table(filtered_stats)
-        else:
-            # Affiche tous les joueurs
-            self._update_stats_table(self._all_stats)
+        """Rafraîchit l'affichage de la table."""
+        self._update_stats_table(self._all_stats)
 
     def _update_stats_table(self, stats: dict[str, PlayerStats]) -> None:
         """Met à jour le tableau des stats."""
