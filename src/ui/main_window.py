@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
 
         self.refresh_btn = QPushButton("Rafraichir")
         self.refresh_btn.clicked.connect(self._refresh_stats)
-        self.refresh_btn.setEnabled(False)
+        self.refresh_btn.setEnabled(True)  # Toujours actif pour permettre l'import
         self.refresh_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.refresh_btn)
 
@@ -252,8 +252,9 @@ class MainWindow(QMainWindow):
         self.start_btn.setText("Arreter le tracking")
         # Le bouton HUD reste grisé jusqu'à ce qu'il y ait des stats
         self.show_hud_btn.setEnabled(False)
-        self.refresh_btn.setEnabled(True)
         self.table_only_checkbox.setEnabled(True)
+        # Coche automatiquement "Table uniquement" pendant le tracking
+        self.table_only_checkbox.setChecked(True)
         self.status_bar.showMessage("Tracking actif - en attente de donnees...")
 
     def _stop_tracking(self) -> None:
@@ -274,9 +275,11 @@ class MainWindow(QMainWindow):
         self.is_tracking = False
         self.start_btn.setText("Demarrer le tracking")
         self.show_hud_btn.setEnabled(False)
-        self.refresh_btn.setEnabled(False)
         self.table_only_checkbox.setEnabled(False)
         self.table_only_checkbox.setChecked(False)  # Décoche et revient à "tous les joueurs"
+        # Recharge les stats de la DB pour afficher tous les joueurs
+        self._all_stats = self.stats_db.get_all_players_stats()
+        self._refresh_table_display()
         self.status_bar.showMessage("Tracking arrete")
 
     def _toggle_hud(self) -> None:
@@ -300,10 +303,8 @@ class MainWindow(QMainWindow):
                 self.show_hud_btn.setText("Masquer HUD")
 
     def _refresh_stats(self) -> None:
-        """Force un rafraîchissement des stats."""
-        if self.log_watcher:
-            self.log_watcher.force_refresh()
-            self.status_bar.showMessage("Stats rafraichies")
+        """Déclenche l'import de tous les logs (même comportement que Importer l'historique)."""
+        self._import_all_logs()
 
     def _on_stats_updated(self, stats: dict[str, PlayerStats]) -> None:
         """Appelé quand les stats sont mises à jour."""

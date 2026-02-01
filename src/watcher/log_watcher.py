@@ -155,7 +155,7 @@ class LogWatcher(QObject):
             self._process_updates()
 
     def _process_updates(self) -> None:
-        """Traite les nouvelles données de la table en cours (sans fusion DB)."""
+        """Traite les nouvelles données de la table en cours avec agrégation DB."""
         if not self.parser or not self.calculator:
             return
 
@@ -179,8 +179,9 @@ class LogWatcher(QObject):
             self.current_table_players = new_players
             self.table_players_changed.emit(new_players)
 
-        # Émet les stats du fichier actuel (session en cours uniquement)
-        self.stats_updated.emit(self._current_file_stats)
+        # Émet les stats agrégées (DB + fichier courant) pour les joueurs de la table
+        aggregated_stats = self.get_aggregated_table_stats()
+        self.stats_updated.emit(aggregated_stats)
 
     def get_current_stats(self) -> dict[str, PlayerStats]:
         """Récupère les stats de tous les joueurs de la DB."""
@@ -197,6 +198,48 @@ class LogWatcher(QObject):
             for name, stats in self._current_file_stats.items()
             if name in self.current_table_players
         }
+
+    def get_aggregated_table_stats(self) -> dict[str, PlayerStats]:
+        """Récupère les stats agrégées (DB + fichier courant) pour les joueurs de la table."""
+        if not self.current_table_players:
+            return {}
+
+        aggregated: dict[str, PlayerStats] = {}
+        db_stats = self.stats_db.get_all_players_stats()
+
+        for player_name in self.current_table_players:
+            db_player = db_stats.get(player_name)
+            file_player = self._current_file_stats.get(player_name)
+
+            if db_player and file_player:
+                # Fusionne les stats DB + fichier courant
+                aggregated[player_name] = PlayerStats(
+                    player_name=player_name,
+                    total_hands=db_player.total_hands + file_player.total_hands,
+                    vpip_hands=db_player.vpip_hands + file_player.vpip_hands,
+                    pfr_hands=db_player.pfr_hands + file_player.pfr_hands,
+                    total_bets=db_player.total_bets + file_player.total_bets,
+                    total_calls=db_player.total_calls + file_player.total_calls,
+                    three_bet_opportunities=db_player.three_bet_opportunities + file_player.three_bet_opportunities,
+                    three_bet_made=db_player.three_bet_made + file_player.three_bet_made,
+                    cbet_opportunities=db_player.cbet_opportunities + file_player.cbet_opportunities,
+                    cbet_made=db_player.cbet_made + file_player.cbet_made,
+                    fold_to_3bet_opportunities=db_player.fold_to_3bet_opportunities + file_player.fold_to_3bet_opportunities,
+                    fold_to_3bet_made=db_player.fold_to_3bet_made + file_player.fold_to_3bet_made,
+                    fold_to_cbet_opportunities=db_player.fold_to_cbet_opportunities + file_player.fold_to_cbet_opportunities,
+                    fold_to_cbet_made=db_player.fold_to_cbet_made + file_player.fold_to_cbet_made,
+                    hands_saw_flop=db_player.hands_saw_flop + file_player.hands_saw_flop,
+                    hands_went_to_showdown=db_player.hands_went_to_showdown + file_player.hands_went_to_showdown,
+                    showdowns_won=db_player.showdowns_won + file_player.showdowns_won,
+                )
+            elif db_player:
+                # Seulement dans la DB
+                aggregated[player_name] = db_player
+            elif file_player:
+                # Seulement dans le fichier courant
+                aggregated[player_name] = file_player
+
+        return aggregated
 
     def force_refresh(self) -> None:
         """Force un rafraîchissement complet des stats."""
@@ -254,8 +297,8 @@ class LogWatcher(QObject):
 
     @pyqtSlot()
     def request_table_stats(self) -> None:
-        """Calcule les stats de la table et émet table_stats_ready (appel asynchrone)."""
-        stats = self.get_table_stats()
+        """Calcule les stats agrégées de la table et émet table_stats_ready (appel asynchrone)."""
+        stats = self.get_aggregated_table_stats()
         self.table_stats_ready.emit(stats)
 
     @pyqtSlot()
