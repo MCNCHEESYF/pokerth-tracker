@@ -136,11 +136,10 @@ class PlayerHUDWidget(QFrame):
     def _apply_style(self) -> None:
         """Applique le style."""
         cfg = HUD_CONFIG
-        alpha = f"{int(cfg['opacity'] * 255):02x}"
         border = "#00aa55" if self._is_grouped else cfg["border_color"]
         self.setStyleSheet(f"""
             #hud {{
-                background-color: {cfg["bg_color"]}{alpha};
+                background-color: {cfg["bg_color"]};
                 border: 2px solid {border};
                 border-radius: 6px;
             }}
@@ -155,7 +154,7 @@ class PlayerHUDWidget(QFrame):
                 font-family: monospace;
             }}
             #groupBtn {{
-                background-color: {"rgba(0,170,85,200)" if self._is_grouped else "rgba(80,80,120,200)"};
+                background-color: {"#00aa55" if self._is_grouped else "#505078"};
                 border: 1px solid {border};
                 border-radius: 3px;
                 color: {cfg["text_color"]};
@@ -163,7 +162,7 @@ class PlayerHUDWidget(QFrame):
                 font-weight: bold;
             }}
             #groupBtn:hover {{
-                background-color: {"rgba(0,200,100,220)" if self._is_grouped else "rgba(100,100,150,220)"};
+                background-color: {"#00c864" if self._is_grouped else "#646496"};
             }}
         """)
 
