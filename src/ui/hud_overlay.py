@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout,
     QFrame, QApplication, QPushButton, QMenu
 )
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QTimer
 from PyQt6.QtGui import QMouseEvent, QRegion
 
 from ..database.models import PlayerStats
@@ -222,17 +222,27 @@ class HUDContainer(QWidget):
 
         self._init_window()
 
+        # Timer pour maintenir la fenetre au premier plan
+        self._raise_timer = QTimer(self)
+        self._raise_timer.timeout.connect(self._raise_to_top)
+        self._raise_timer.setInterval(500)  # Toutes les 500ms
+
+    def _raise_to_top(self) -> None:
+        """Eleve la fenetre au premier plan."""
+        if self.isVisible():
+            self.raise_()
+
     def _init_window(self) -> None:
         """Configure la fenetre."""
         self.setWindowFlags(
             Qt.WindowType.Window |
-            Qt.WindowType.Tool |
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.WindowDoesNotAcceptFocus
+            Qt.WindowType.X11BypassWindowManagerHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_X11DoNotAcceptFocus)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Grande taille pour permettre le positionnement libre
@@ -357,10 +367,13 @@ class HUDManager:
         if self._pending_stats:
             self.update_stats(self._pending_stats)
         self._container.show()
+        self._container.raise_()
+        self._container._raise_timer.start()
 
     def hide(self) -> None:
         """Masque les HUDs."""
         self._visible = False
+        self._container._raise_timer.stop()
         self._container.hide()
 
     def is_visible(self) -> bool:

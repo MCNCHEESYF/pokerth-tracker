@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """PokerTH Tracker - Point d'entrée principal."""
 
+import os
 import sys
 import argparse
 from pathlib import Path
+
+# Force XWayland pour que le HUD reste au premier plan
+os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
