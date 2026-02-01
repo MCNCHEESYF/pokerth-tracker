@@ -262,6 +262,12 @@ class MainWindow(QMainWindow):
         self.is_tracking = False
         self.start_btn.setText("Start tracking")
         self.show_hud_btn.setEnabled(False)
+        self.show_hud_btn.setText("Show HUD")
+
+        # Cache le HUD
+        if self.hud:
+            self.hud.hide()
+
         # Recharge les stats de la DB pour afficher tous les joueurs
         self._all_stats = self.stats_db.get_all_players_stats()
         self._refresh_table_display()
@@ -546,7 +552,13 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Appelé à la fermeture."""
-        self._stop_tracking()
+        # Arret rapide sans attendre le thread
+        if self.log_watcher:
+            self.log_watcher.stop()
+        if self._watcher_thread:
+            self._watcher_thread.quit()
+            # Ne pas attendre - le thread s'arretera tout seul
+
         if self.hud:
             self.hud.close()
             self.hud = None
