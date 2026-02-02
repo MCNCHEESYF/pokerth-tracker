@@ -46,7 +46,7 @@ python main.py
 ```
 
 ## Troubleshooting
-If you get a Core Dump at launch, install xcb dependencies:
+If you get a Core Dump at launch, install xcb dependencies. 
 On Ubuntu/Debian :
 ```bash
 sudo apt install -y \
