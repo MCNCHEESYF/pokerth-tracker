@@ -547,7 +547,8 @@ class MainWindow(QMainWindow):
             "PokerTH Tracker v1.0-beta1 by ollika\n\n"
             "Real-time HUD for PokerTH\n\n"
             "Stats: VPIP, PFR, AF, 3-Bet, C-Bet,\n"
-            "Fold to 3-Bet, Fold to C-Bet, WTSD, W$SD"
+            "Fold to 3-Bet, Fold to C-Bet, WTSD, W$SD\n\n"
+            "LONG LIVE PokerTH !"
         )
 
     def closeEvent(self, event) -> None:
