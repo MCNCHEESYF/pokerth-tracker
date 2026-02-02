@@ -8,6 +8,7 @@ A PokerTH Tracker
 
 - Python 3.10+
 - pip
+- xcb
 
 ### Setup
 
@@ -43,3 +44,20 @@ source venv/bin/activate
 ```bash
 python main.py
 ```
+
+## Troubleshooting
+If you get a Core Dump at launch, install xcb dependencies:
+On Ubuntu/Debian :
+```bash
+sudo apt install -y \
+  libxcb-cursor0 \
+  libxkbcommon-x11-0 \
+  libxcb-xinerama0 \
+  libxcb-render0 \
+  libxcb-shape0 \
+  libxcb-randr0 \
+  libxcb-icccm4 \
+  libxcb-keysyms1 \
+  libxcb-image0 \
+  libxcb-util1
+  ```
