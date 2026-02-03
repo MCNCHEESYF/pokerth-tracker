@@ -141,9 +141,9 @@ class MainWindow(QMainWindow):
         # Menu Fichier
         file_menu = menubar.addMenu("&File")
 
-        import_action = QAction("Import history...", self)
-        import_action.triggered.connect(self._import_all_logs)
-        file_menu.addAction(import_action)
+        self.import_action = QAction("Import history...", self)
+        self.import_action.triggered.connect(self._import_all_logs)
+        file_menu.addAction(self.import_action)
 
         file_menu.addSeparator()
 
@@ -242,6 +242,8 @@ class MainWindow(QMainWindow):
         self.start_btn.setText("Stop tracking")
         # Le bouton HUD reste grisé jusqu'à ce qu'il y ait des stats
         self.show_hud_btn.setEnabled(False)
+        self.refresh_btn.setEnabled(False)
+        self.import_action.setEnabled(False)
         self.status_bar.showMessage("Tracking active - waiting for data...")
 
     def _stop_tracking(self) -> None:
@@ -263,6 +265,8 @@ class MainWindow(QMainWindow):
         self.start_btn.setText("Start tracking")
         self.show_hud_btn.setEnabled(False)
         self.show_hud_btn.setText("Show HUD")
+        self.refresh_btn.setEnabled(True)
+        self.import_action.setEnabled(True)
 
         # Cache le HUD
         if self.hud:
