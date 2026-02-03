@@ -8,7 +8,7 @@ A PokerTH Tracker
 
 - Python 3.10+
 - pip
-- xcb
+- libxcb
 
 ### Setup
 
@@ -46,7 +46,7 @@ python main.py
 ```
 
 ## Troubleshooting
-If you get a Core Dump at launch, install xcb dependencies. 
+If you get a Core Dump at launch, install libxcb dependencies. 
 On Ubuntu/Debian :
 ```bash
 sudo apt install -y \
