@@ -259,6 +259,10 @@ class MainWindow(QMainWindow):
             self._watcher_thread.wait(3000)
             self._watcher_thread = None
 
+        # Persiste les mains jouées pendant le tracking avant de détruire le watcher
+        if self.log_watcher:
+            self.log_watcher.save_pending_stats()
+
         self.log_watcher = None
 
         self.is_tracking = False

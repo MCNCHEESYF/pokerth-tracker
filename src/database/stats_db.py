@@ -1,5 +1,6 @@
 """Base de données pour les statistiques persistantes."""
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -51,6 +52,7 @@ class StatsDB:
         "ALTER TABLE player_stats ADD COLUMN hands_saw_flop INTEGER DEFAULT 0",
         "ALTER TABLE player_stats ADD COLUMN hands_went_to_showdown INTEGER DEFAULT 0",
         "ALTER TABLE player_stats ADD COLUMN showdowns_won INTEGER DEFAULT 0",
+        "ALTER TABLE processed_logs ADD COLUMN stats_json TEXT",
     ]
 
     def __init__(self, db_path: Path | str):
@@ -277,17 +279,31 @@ class StatsDB:
             row = cursor.fetchone()
             return row["last_action_id"] if row else 0
 
-    def set_last_processed_action(self, log_path: str, action_id: int) -> None:
-        """Enregistre le dernier ActionID traité pour un fichier log."""
+    def set_last_processed_action(self, log_path: str, action_id: int, stats_json: str | None = None) -> None:
+        """Enregistre le dernier ActionID traité et les stats du fichier pour un fichier log."""
         with self._connect() as conn:
             conn.execute("""
-                INSERT INTO processed_logs (log_path, last_action_id)
-                VALUES (?, ?)
+                INSERT INTO processed_logs (log_path, last_action_id, stats_json)
+                VALUES (?, ?, ?)
                 ON CONFLICT(log_path) DO UPDATE SET
                     last_action_id = excluded.last_action_id,
+                    stats_json = excluded.stats_json,
                     last_processed = CURRENT_TIMESTAMP
-            """, (log_path, action_id))
+            """, (log_path, action_id, stats_json))
             conn.commit()
+
+    def get_imported_file_stats(self, log_path: str) -> dict[str, PlayerStats] | None:
+        """Charge les stats importées pour un fichier log depuis le baseline persisté."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "SELECT stats_json FROM processed_logs WHERE log_path = ?",
+                (log_path,)
+            )
+            row = cursor.fetchone()
+            if row and row["stats_json"]:
+                data = json.loads(row["stats_json"])
+                return {name: PlayerStats(**player_data) for name, player_data in data.items()}
+        return None
 
     def clear_all_stats(self) -> None:
         """Efface toutes les stats (pour debug/reset)."""

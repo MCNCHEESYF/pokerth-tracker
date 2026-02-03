@@ -1,6 +1,8 @@
 """Surveillance des fichiers de log PokerTH en temps réel."""
 
+import json
 import os
+from dataclasses import asdict, fields as dataclass_fields
 from pathlib import Path
 from typing import Callable
 
@@ -53,6 +55,8 @@ class LogWatcher(QObject):
         self.current_table_players: list[str] = []
         # Stats calculées pour le fichier actuel (pour calculer les deltas)
         self._current_file_stats: dict[str, PlayerStats] = {}
+        # Baseline: stats du fichier courant au dernier import (évite le double-comptage)
+        self._imported_file_stats: dict[str, PlayerStats] = {}
 
         # Watcher Qt pour les fichiers (créé dans start() pour être dans le bon thread)
         self._file_watcher: QFileSystemWatcher | None = None
@@ -134,6 +138,9 @@ class LogWatcher(QObject):
         self.last_action_id = 0
         self._current_file_stats = {}
 
+        # Charge le baseline si le fichier a déjà été importé (évite le double-comptage)
+        self._imported_file_stats = self.stats_db.get_imported_file_stats(str(log_path)) or {}
+
         self.new_log_detected.emit(str(log_path))
 
         # Process initial pour charger les stats du fichier
@@ -212,25 +219,28 @@ class LogWatcher(QObject):
             file_player = self._current_file_stats.get(player_name)
 
             if db_player and file_player:
-                # Fusionne les stats DB + fichier courant
+                # Soustrait le baseline importé pour éviter le double-comptage du fichier courant.
+                # Formule: DB + fichier - baseline = DB + (nouvelles mains depuis l'import)
+                # Si pas de baseline (fichier jamais importé), imp est None et on ajoute tout.
+                imp = self._imported_file_stats.get(player_name)
                 aggregated[player_name] = PlayerStats(
                     player_name=player_name,
-                    total_hands=db_player.total_hands + file_player.total_hands,
-                    vpip_hands=db_player.vpip_hands + file_player.vpip_hands,
-                    pfr_hands=db_player.pfr_hands + file_player.pfr_hands,
-                    total_bets=db_player.total_bets + file_player.total_bets,
-                    total_calls=db_player.total_calls + file_player.total_calls,
-                    three_bet_opportunities=db_player.three_bet_opportunities + file_player.three_bet_opportunities,
-                    three_bet_made=db_player.three_bet_made + file_player.three_bet_made,
-                    cbet_opportunities=db_player.cbet_opportunities + file_player.cbet_opportunities,
-                    cbet_made=db_player.cbet_made + file_player.cbet_made,
-                    fold_to_3bet_opportunities=db_player.fold_to_3bet_opportunities + file_player.fold_to_3bet_opportunities,
-                    fold_to_3bet_made=db_player.fold_to_3bet_made + file_player.fold_to_3bet_made,
-                    fold_to_cbet_opportunities=db_player.fold_to_cbet_opportunities + file_player.fold_to_cbet_opportunities,
-                    fold_to_cbet_made=db_player.fold_to_cbet_made + file_player.fold_to_cbet_made,
-                    hands_saw_flop=db_player.hands_saw_flop + file_player.hands_saw_flop,
-                    hands_went_to_showdown=db_player.hands_went_to_showdown + file_player.hands_went_to_showdown,
-                    showdowns_won=db_player.showdowns_won + file_player.showdowns_won,
+                    total_hands=db_player.total_hands + file_player.total_hands - (imp.total_hands if imp else 0),
+                    vpip_hands=db_player.vpip_hands + file_player.vpip_hands - (imp.vpip_hands if imp else 0),
+                    pfr_hands=db_player.pfr_hands + file_player.pfr_hands - (imp.pfr_hands if imp else 0),
+                    total_bets=db_player.total_bets + file_player.total_bets - (imp.total_bets if imp else 0),
+                    total_calls=db_player.total_calls + file_player.total_calls - (imp.total_calls if imp else 0),
+                    three_bet_opportunities=db_player.three_bet_opportunities + file_player.three_bet_opportunities - (imp.three_bet_opportunities if imp else 0),
+                    three_bet_made=db_player.three_bet_made + file_player.three_bet_made - (imp.three_bet_made if imp else 0),
+                    cbet_opportunities=db_player.cbet_opportunities + file_player.cbet_opportunities - (imp.cbet_opportunities if imp else 0),
+                    cbet_made=db_player.cbet_made + file_player.cbet_made - (imp.cbet_made if imp else 0),
+                    fold_to_3bet_opportunities=db_player.fold_to_3bet_opportunities + file_player.fold_to_3bet_opportunities - (imp.fold_to_3bet_opportunities if imp else 0),
+                    fold_to_3bet_made=db_player.fold_to_3bet_made + file_player.fold_to_3bet_made - (imp.fold_to_3bet_made if imp else 0),
+                    fold_to_cbet_opportunities=db_player.fold_to_cbet_opportunities + file_player.fold_to_cbet_opportunities - (imp.fold_to_cbet_opportunities if imp else 0),
+                    fold_to_cbet_made=db_player.fold_to_cbet_made + file_player.fold_to_cbet_made - (imp.fold_to_cbet_made if imp else 0),
+                    hands_saw_flop=db_player.hands_saw_flop + file_player.hands_saw_flop - (imp.hands_saw_flop if imp else 0),
+                    hands_went_to_showdown=db_player.hands_went_to_showdown + file_player.hands_went_to_showdown - (imp.hands_went_to_showdown if imp else 0),
+                    showdowns_won=db_player.showdowns_won + file_player.showdowns_won - (imp.showdowns_won if imp else 0),
                 )
             elif db_player:
                 # Seulement dans la DB
@@ -246,6 +256,33 @@ class LogWatcher(QObject):
         # Émet le signal avec TOUTES les stats de la DB
         all_db_stats = self.stats_db.get_all_players_stats()
         self.stats_updated.emit(all_db_stats)
+
+    def save_pending_stats(self) -> None:
+        """Persiste le delta du fichier courant dans la DB (mains jouées depuis le dernier import).
+
+        À appeler après l'arrêt du thread du watcher, avant de détruire l'instance.
+        """
+        if not self.current_log or not self._current_file_stats:
+            return
+
+        for player_name, file_stats in self._current_file_stats.items():
+            imported_stats = self._imported_file_stats.get(player_name)
+            if imported_stats:
+                # Calcule le delta champ par champ (nouvelles mains depuis l'import)
+                delta_kwargs: dict = {"player_name": player_name}
+                for f in dataclass_fields(PlayerStats):
+                    if f.name == "player_name":
+                        continue
+                    delta_kwargs[f.name] = getattr(file_stats, f.name) - getattr(imported_stats, f.name)
+                self.stats_db.merge_stats(PlayerStats(**delta_kwargs))
+            else:
+                # Pas de baseline; toutes les stats sont nouvelles
+                self.stats_db.merge_stats(file_stats)
+
+        # Met à jour le baseline avec les stats actuelles du fichier
+        stats_json = json.dumps({name: asdict(stats) for name, stats in self._current_file_stats.items()})
+        self.stats_db.set_last_processed_action(str(self.current_log), self.last_action_id, stats_json)
+        self._imported_file_stats = dict(self._current_file_stats)
 
     def import_all_logs(self, progress_callback: Callable[[int, int, str], None] | None = None) -> int:
         """Importe tous les fichiers .pdb du répertoire de logs.
@@ -279,9 +316,10 @@ class LogWatcher(QObject):
                 for player_name, stats in file_stats.items():
                     self.stats_db.merge_stats(stats)
 
-                # Marque ce fichier comme traité avec son dernier ActionID
+                # Marque ce fichier comme traité avec son dernier ActionID et ses stats (baseline)
                 last_action = parser.get_last_processed_action_id()
-                self.stats_db.set_last_processed_action(str(pdb_file), last_action)
+                stats_json = json.dumps({name: asdict(stats) for name, stats in file_stats.items()})
+                self.stats_db.set_last_processed_action(str(pdb_file), last_action, stats_json)
 
                 imported += 1
 
