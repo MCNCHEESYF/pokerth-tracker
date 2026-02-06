@@ -6,8 +6,9 @@ import sys
 import argparse
 from pathlib import Path
 
-# Force XWayland pour que le HUD reste au premier plan
-os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+# Force XWayland pour que le HUD reste au premier plan (Linux uniquement)
+if sys.platform == "linux":
+    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt

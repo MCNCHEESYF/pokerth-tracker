@@ -1,5 +1,7 @@
 """HUD Overlay pour afficher les stats des joueurs."""
 
+import sys
+
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout,
     QFrame, QApplication, QPushButton, QMenu
@@ -233,15 +235,22 @@ class HUDContainer(QWidget):
 
     def _init_window(self) -> None:
         """Configure la fenetre."""
-        self.setWindowFlags(
+        flags = (
             Qt.WindowType.Window |
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.X11BypassWindowManagerHint
+            Qt.WindowType.WindowStaysOnTopHint
         )
+        if sys.platform == "linux":
+            flags |= Qt.WindowType.X11BypassWindowManagerHint
+        else:
+            # Windows/macOS: Tool évite l'apparition dans la taskbar et le vol de focus
+            flags |= Qt.WindowType.Tool
+
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setAttribute(Qt.WidgetAttribute.WA_X11DoNotAcceptFocus)
+        if sys.platform == "linux":
+            self.setAttribute(Qt.WidgetAttribute.WA_X11DoNotAcceptFocus)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Grande taille pour permettre le positionnement libre
