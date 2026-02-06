@@ -12,8 +12,8 @@ if sys.platform == "win32":
     POKERTH_LOG_DIR = _appdata / "pokerth" / "log"
     STATS_DB_PATH = _appdata / "pokerth_tracker" / "stats.db"
 elif sys.platform == "darwin":
-    POKERTH_LOG_DIR = HOME / "Library" / "Application Support" / "pokerth" / "log"
-    STATS_DB_PATH = HOME / "Library" / "Application Support" / "pokerth_tracker" / "stats.db"
+    POKERTH_LOG_DIR = HOME / ".pokerth" / "log"
+    STATS_DB_PATH = HOME / ".pokerth_tracker" / "stats.db"
 else:
     POKERTH_LOG_DIR = HOME / ".pokerth" / "log"
     STATS_DB_PATH = HOME / ".pokerth_tracker" / "stats.db"
