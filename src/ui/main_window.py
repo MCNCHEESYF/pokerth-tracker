@@ -284,7 +284,7 @@ class MainWindow(QMainWindow):
     def _toggle_hud(self) -> None:
         """Affiche/masque le HUD."""
         if self.hud is None:
-            self.hud = HUDManager()
+            self.hud = HUDManager(on_reset_callback=self._on_hud_reset)
 
             # Demande les stats de manière asynchrone
             if self.log_watcher:
@@ -298,6 +298,10 @@ class MainWindow(QMainWindow):
                 self.hud.hide()
                 self.show_hud_btn.setText("Show HUD")
             else:
+                # Demande des stats fraîches avant de réafficher le HUD
+                if self.log_watcher:
+                    self._hud_waiting_for_stats = True
+                    self.log_watcher.request_table_stats()
                 self.hud.show()
                 self.show_hud_btn.setText("Hide HUD")
 
@@ -345,6 +349,12 @@ class MainWindow(QMainWindow):
         """Appelé quand les joueurs de la table changent."""
         self._table_players = players
         self.status_bar.showMessage(f"Table: {len(players)} players")
+
+    def _on_hud_reset(self) -> None:
+        """Appelé quand le HUD est réinitialisé (reset positions)."""
+        if self.log_watcher:
+            self._hud_waiting_for_stats = True
+            self.log_watcher.request_table_stats()
 
     def _refresh_table_display(self) -> None:
         """Rafraîchit l'affichage de la table."""

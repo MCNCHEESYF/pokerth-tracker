@@ -273,9 +273,9 @@ class HUDContainer(QWidget):
         widget.drag_moved.connect(lambda pos: self._on_drag_move(name, pos))
         self._widgets[name] = widget
 
-        # Position initiale: en colonne
-        y = sum(w.height() + 10 for w in self._widgets.values() if w != widget)
-        widget.move(50, 50 + y)
+        # Position initiale: en ligne (horizontale)
+        x = sum(w.width() + 10 for w in self._widgets.values() if w != widget)
+        widget.move(50 + x, 50)
         widget.show()
         self._update_mask()
 
@@ -327,22 +327,23 @@ class HUDContainer(QWidget):
         self._update_mask()
 
     def reset_positions(self) -> None:
-        """Remet les widgets en colonne."""
-        y = 50
+        """Remet les widgets en ligne (horizontale)."""
+        x = 50
         for widget in self._widgets.values():
-            widget.move(50, y)
-            y += widget.height() + 10
+            widget.move(x, 50)
+            x += widget.width() + 10
         self._update_mask()
 
 
 class HUDManager:
     """Gestionnaire des HUDs."""
 
-    def __init__(self):
+    def __init__(self, on_reset_callback=None):
         self._container = HUDContainer()
         self._visible = False
         self._grouped = False
         self._pending_stats: dict[str, PlayerStats] = {}
+        self._on_reset_callback = on_reset_callback
 
     def _create_widget(self, name: str) -> PlayerHUDWidget:
         """Cree un nouveau widget HUD."""
@@ -357,8 +358,10 @@ class HUDManager:
         self._container.set_grouped(self._grouped)
 
     def _on_reset(self) -> None:
-        """Reset les positions."""
+        """Reset les positions et demande un rafraîchissement des stats."""
         self._container.reset_positions()
+        if self._on_reset_callback:
+            self._on_reset_callback()
 
     def show(self) -> None:
         """Affiche les HUDs."""
