@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PokerTH Tracker
+Comment=Real-time HUD for PokerTH
+Exec=pokerth-tracker
+Icon=pokerth-tracker
+Categories=Game;CardGame;
+Terminal=false
+StartupWMClass=pokerth-tracker

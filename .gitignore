@@ -206,5 +206,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# AppImage build artifacts
+*.AppImage
+appimage/build/
+
 # Claude
 .claude/*

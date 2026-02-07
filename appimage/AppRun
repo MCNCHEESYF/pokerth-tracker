@@ -1,0 +1,31 @@
+#!/bin/bash
+# AppRun - Point d'entree de l'AppImage PokerTH Tracker
+
+# Repertoire courant de l'AppImage
+APPDIR="$(dirname "$(readlink -f "$0")")"
+
+# Auto-detection du Python embarque
+PYTHON_DIR="$(ls -d "${APPDIR}/opt/python"* 2>/dev/null | head -1)"
+PYTHON_BIN="$(ls "${PYTHON_DIR}/bin/python"3.* 2>/dev/null | grep -v config | head -1)"
+PYTHON_LIB_DIR="$(ls -d "${PYTHON_DIR}/lib/python"3.* 2>/dev/null | head -1)"
+
+# Configuration Python embarque
+export PYTHONHOME="${PYTHON_DIR}"
+export PYTHONPATH="${PYTHON_LIB_DIR}/site-packages:${APPDIR}/app"
+export PATH="${PYTHON_DIR}/bin:${PATH}"
+
+# Bibliotheques partagees (Qt, xcb, etc.)
+export LD_LIBRARY_PATH="${PYTHON_DIR}/lib:${APPDIR}/usr/lib:${LD_LIBRARY_PATH}"
+
+# Plugins Qt
+export QT_PLUGIN_PATH="${PYTHON_LIB_DIR}/site-packages/PyQt6/Qt6/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${QT_PLUGIN_PATH}/platforms"
+
+# Force XCB pour la compatibilite HUD
+export QT_QPA_PLATFORM=xcb
+
+# XDG data pour les icones et themes
+export XDG_DATA_DIRS="${APPDIR}/usr/share:${XDG_DATA_DIRS:-/usr/share}"
+
+# Lancer l'application
+exec "${PYTHON_BIN}" "${APPDIR}/app/main.py" "$@"
