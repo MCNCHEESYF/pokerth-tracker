@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QGroupBox, QStatusBar,
     QMessageBox, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QSettings, QThread
+from PyQt6.QtCore import Qt, QSettings, QThread, QMetaObject, Q_ARG
 from PyQt6.QtGui import QAction
 
 
@@ -248,18 +248,21 @@ class MainWindow(QMainWindow):
 
     def _stop_tracking(self) -> None:
         """Arrête le tracking."""
-        if self.log_watcher:
-            # Appelle stop() via le signal (thread-safe)
-            self.log_watcher.stop()
-
-        if self._watcher_thread:
-            # Demande au thread de quitter
+        if self.log_watcher and self._watcher_thread:
+            # Invoque stop() dans le thread du watcher (thread-safe)
+            QMetaObject.invokeMethod(
+                self.log_watcher, "stop",
+                Qt.ConnectionType.QueuedConnection
+            )
+            # Demande au thread de quitter (après stop())
             self._watcher_thread.quit()
-            # Attend la fin du thread (avec timeout)
-            self._watcher_thread.wait(3000)
+            # Attend la fin du thread avec timeout
+            if not self._watcher_thread.wait(5000):
+                self._watcher_thread.terminate()
+                self._watcher_thread.wait(1000)
             self._watcher_thread = None
 
-        # Persiste les mains jouées pendant le tracking avant de détruire le watcher
+        # Persiste les mains jouées (le thread est arrêté, pas de conflit)
         if self.log_watcher:
             self.log_watcher.save_pending_stats()
 
@@ -571,12 +574,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Appelé à la fermeture."""
-        # Arret rapide sans attendre le thread
-        if self.log_watcher:
-            self.log_watcher.stop()
-        if self._watcher_thread:
+        if self.log_watcher and self._watcher_thread:
+            QMetaObject.invokeMethod(
+                self.log_watcher, "stop",
+                Qt.ConnectionType.QueuedConnection
+            )
             self._watcher_thread.quit()
-            # Ne pas attendre - le thread s'arretera tout seul
+            if not self._watcher_thread.wait(3000):
+                self._watcher_thread.terminate()
 
         if self.hud:
             self.hud.close()
