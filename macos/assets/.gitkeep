@@ -1,0 +1,5 @@
+# Ce dossier contient les ressources pour le build macOS
+#
+# Fichiers recommandés:
+# - icon.icns : Icône de l'application (format icns pour macOS)
+# - dmg-background.png : Image de fond pour le DMG (640x400 pixels recommandé)
