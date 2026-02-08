@@ -2,6 +2,7 @@
 
 import json
 import os
+import sqlite3
 from dataclasses import asdict, fields as dataclass_fields
 from pathlib import Path
 from typing import Callable
@@ -166,29 +167,33 @@ class LogWatcher(QObject):
         if not self.parser or not self.calculator:
             return
 
-        # Rafraîchit la connexion pour voir les nouvelles données
-        self.parser.refresh()
+        try:
+            # Rafraîchit la connexion pour voir les nouvelles données
+            self.parser.refresh()
 
-        # Vérifie s'il y a de nouvelles actions
-        current_max_action = self.parser.get_last_processed_action_id()
-        if current_max_action <= self.last_action_id:
-            return
+            # Vérifie s'il y a de nouvelles actions
+            current_max_action = self.parser.get_last_processed_action_id()
+            if current_max_action <= self.last_action_id:
+                return
 
-        # Calcule les stats du fichier actuel uniquement (pas de fusion DB)
-        self._current_file_stats = self.calculator.calculate_all_players_stats()
+            # Calcule les stats du fichier actuel uniquement (pas de fusion DB)
+            self._current_file_stats = self.calculator.calculate_all_players_stats()
 
-        # Met à jour le dernier ActionID traité (en mémoire seulement)
-        self.last_action_id = current_max_action
+            # Met à jour le dernier ActionID traité (en mémoire seulement)
+            self.last_action_id = current_max_action
 
-        # Vérifie si les joueurs de la table ont changé
-        new_players = self.parser.get_current_table_players()
-        if new_players != self.current_table_players:
-            self.current_table_players = new_players
-            self.table_players_changed.emit(new_players)
+            # Vérifie si les joueurs de la table ont changé
+            new_players = self.parser.get_current_table_players()
+            if new_players != self.current_table_players:
+                self.current_table_players = new_players
+                self.table_players_changed.emit(new_players)
 
-        # Émet les stats agrégées (DB + fichier courant) pour les joueurs de la table
-        aggregated_stats = self.get_aggregated_table_stats()
-        self.stats_updated.emit(aggregated_stats)
+            # Émet les stats agrégées (DB + fichier courant) pour les joueurs de la table
+            aggregated_stats = self.get_aggregated_table_stats()
+            self.stats_updated.emit(aggregated_stats)
+        except sqlite3.OperationalError:
+            # La base est temporairement verrouillée par PokerTH, on réessaiera au prochain poll
+            pass
 
     def get_current_stats(self) -> dict[str, PlayerStats]:
         """Récupère les stats de tous les joueurs de la DB."""

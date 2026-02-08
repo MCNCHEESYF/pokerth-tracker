@@ -33,11 +33,12 @@ class LogParser:
     def _connect(self) -> sqlite3.Connection:
         """Retourne la connexion persistante (la crée si nécessaire)."""
         if self._conn is None:
-            # Connexion en lecture seule, thread-safe
+            # Connexion en lecture seule, thread-safe, avec timeout pour les locks
             self._conn = sqlite3.connect(
                 f"file:{self.db_path}?mode=ro",
                 uri=True,
-                check_same_thread=False
+                check_same_thread=False,
+                timeout=10
             )
             self._conn.row_factory = sqlite3.Row
         return self._conn
