@@ -32,6 +32,7 @@ MANIFEST
 *.manifest
 *.spec
 !macos/pokerth-tracker.spec
+!windows/pokerth-tracker.spec
 
 # Installer logs
 pip-log.txt
