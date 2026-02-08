@@ -61,7 +61,8 @@ class MainWindow(QMainWindow):
     def _setup_window(self) -> None:
         """Configure la fenêtre principale."""
         self.setWindowTitle("PokerTH Tracker")
-        self.setMinimumSize(800, 400)
+        self.setMinimumSize(800, 600)
+        self.resize(900, 650)
 
     def _setup_ui(self) -> None:
         """Configure l'interface."""
