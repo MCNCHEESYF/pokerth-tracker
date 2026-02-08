@@ -221,5 +221,9 @@ macos/temp_icon.png
 macos/dmg_contents/
 .DS_Store
 
+# Windows build artifacts
+windows/build/
+windows/dist/
+
 # Claude
 .claude/*
