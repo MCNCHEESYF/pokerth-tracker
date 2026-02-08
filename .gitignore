@@ -31,6 +31,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!macos/pokerth-tracker.spec
 
 # Installer logs
 pip-log.txt
@@ -209,6 +210,16 @@ __marimo__/
 # AppImage build artifacts
 *.AppImage
 appimage/build/
+
+# macOS build artifacts
+*.dmg
+macos/build/
+macos/dist/
+macos/icon.icns
+macos/icon.iconset/
+macos/temp_icon.png
+macos/dmg_contents/
+.DS_Store
 
 # Claude
 .claude/*
