@@ -1,171 +1,252 @@
-# Build DMG pour macOS - PokerTH Tracker
+# Build macOS pour PokerTH Tracker
 
-Ce répertoire contient l'architecture de build pour créer une image DMG installable de PokerTH Tracker sur macOS.
+Ce dossier contient tous les scripts et configurations nécessaires pour créer un **binaire universel** (Intel + Apple Silicon) et un **DMG distributable** pour macOS 13+.
 
-## Prérequis
+## 📋 Prérequis
 
-- **macOS** : 10.13 (High Sierra) ou plus récent
-- **Python 3.12+** : Disponible via Homebrew ou python.org
-- **pip** : Gestionnaire de paquets Python (inclus avec Python)
-- **PyInstaller** : Sera installé automatiquement par le script de build
+### Système
+- macOS 13.0 (Ventura) ou supérieur
+- Xcode Command Line Tools installé : `xcode-select --install`
 
-### Installation optionnelle pour des icônes personnalisées
-
-Pour créer une icône .icns à partir du fichier SVG, vous pouvez installer :
-
+### Python et dépendances
 ```bash
-brew install librsvg
+# Python 3.9+ recommandé
+python3 --version
+
+# Installation de PyInstaller
+pip3 install pyinstaller
+
+# Installation des dépendances de l'application
+pip3 install -r ../requirements.txt
 ```
 
-Sans cet outil, l'icône par défaut de Python sera utilisée.
+## 🚀 Build rapide (Méthode recommandée)
 
-## Structure des fichiers
+Pour créer le binaire universel ET le DMG en une seule commande :
+
+```bash
+cd macos
+chmod +x build-all.sh
+./build-all.sh
+```
+
+Le DMG final sera créé dans `macos/dist/PokerTH-Tracker-X.X.X-Universal.dmg`
+
+## 🔧 Build étape par étape
+
+### Étape 1: Créer le binaire universel
+
+```bash
+cd macos
+chmod +x build-universal.sh
+./build-universal.sh
+```
+
+Ce script :
+- Nettoie les builds précédents
+- Compile pour Intel (x86_64)
+- Compile pour Apple Silicon (arm64)
+- Fusionne les deux binaires avec `lipo`
+- Crée `dist/PokerTH Tracker.app` universel
+
+### Étape 2: Créer le DMG
+
+```bash
+cd macos
+chmod +x create-dmg.sh
+./create-dmg.sh
+```
+
+Ce script :
+- Crée un DMG avec l'application
+- Ajoute un lien vers le dossier Applications
+- Configure la présentation du DMG
+- Compresse le DMG final
+
+## 📁 Structure des fichiers
 
 ```
 macos/
-├── README.md              # Ce fichier
-├── Info.plist             # Métadonnées du bundle macOS
-├── pokerth-tracker.spec   # Configuration PyInstaller
-└── build-dmg.sh           # Script de build principal
+├── README.md                    # Ce fichier
+├── pokerth-tracker.spec        # Configuration PyInstaller
+├── build-universal.sh          # Script de build universel
+├── create-dmg.sh               # Script de création du DMG
+├── build-all.sh                # Script complet (build + DMG)
+├── create-icns.sh              # Utilitaire pour créer des icônes
+├── assets/                     # Ressources
+│   ├── .gitkeep
+│   ├── icon.icns              # Icône de l'app (à créer)
+│   └── dmg-background.png     # Fond du DMG (optionnel)
+├── build/                      # Fichiers temporaires (gitignored)
+└── dist/                       # Applications et DMG générés
+    ├── PokerTH Tracker.app
+    └── PokerTH-Tracker-X.X.X-Universal.dmg
 ```
 
-## Utilisation
+## 🎨 Création des ressources
 
-### Build complet (recommandé)
+### Icône de l'application (icon.icns)
 
-Exécutez simplement le script de build depuis la racine du projet :
+1. Créez ou trouvez une image PNG de 1024x1024 pixels
+2. Utilisez le script fourni :
 
 ```bash
-./macos/build-dmg.sh
+cd macos
+chmod +x create-icns.sh
+./create-icns.sh mon-icone.png assets/icon.icns
 ```
 
-Le script effectuera automatiquement :
-1. Vérification des prérequis (Python, pip)
-2. Installation de PyInstaller si nécessaire
-3. Nettoyage des anciens builds
-4. Création de l'icône .icns (si les outils sont disponibles)
-5. Construction du bundle .app avec PyInstaller
-6. Création de l'image DMG finale
+### Image de fond du DMG (optionnel)
 
-### Résultat
+1. Créez une image PNG de 640x400 pixels
+2. Placez-la dans `assets/dmg-background.png`
+3. Le script `create-dmg.sh` l'utilisera automatiquement
 
-Le fichier DMG sera créé à la racine du projet :
+## 🏗️ Architecture universelle
 
+Le binaire créé contient du code pour les deux architectures :
+
+- **Intel (x86_64)** : Mac avec processeur Intel
+- **Apple Silicon (arm64)** : Mac M1, M2, M3, M4, etc.
+
+Vérification :
+```bash
+lipo -info "dist/PokerTH Tracker.app/Contents/MacOS/PokerTH Tracker"
+# Output: Architectures in the fat file: x86_64 arm64
 ```
-PokerTH_Tracker-macOS.dmg
+
+## 🎯 Configuration minimale
+
+Le binaire requiert **macOS 13.0 (Ventura)** minimum. Pour changer cette version :
+
+1. Éditez `pokerth-tracker.spec`
+2. Modifiez la valeur `LSMinimumSystemVersion` dans `info_plist`
+
+## ⚙️ Personnalisation
+
+### Modifier les informations de l'application
+
+Éditez `pokerth-tracker.spec` :
+
+```python
+app = BUNDLE(
+    ...
+    bundle_identifier='com.votre-entreprise.pokerth-tracker',
+    version='1.0.0',
+    info_plist={
+        'CFBundleName': 'PokerTH Tracker',
+        'CFBundleVersion': '1.0.0',
+        'LSMinimumSystemVersion': '13.0',
+        # Autres paramètres...
+    },
+)
 ```
 
-Taille approximative : 50-80 MB
+### Exclure des modules inutiles
 
-## Installation de l'application
+Dans `pokerth-tracker.spec`, section `excludes` :
 
-1. Double-cliquez sur `PokerTH_Tracker-macOS.dmg`
-2. Une fenêtre s'ouvrira avec l'application et un raccourci vers Applications
-3. Glissez-déposez `PokerTH Tracker.app` dans le dossier Applications
-4. Éjectez le volume DMG
-5. Lancez l'application depuis le Launchpad ou le dossier Applications
+```python
+excludes=[
+    'tkinter',      # Interface Tk/Tcl
+    'matplotlib',   # Graphiques
+    'numpy',        # Calculs scientifiques
+    'pandas',       # DataFrames
+    # Ajoutez d'autres modules à exclure
+],
+```
 
-## Première exécution
+## 🐛 Dépannage
 
-Lors de la première exécution, macOS peut afficher un avertissement de sécurité car l'application n'est pas signée par un développeur Apple identifié.
-
-Pour autoriser l'application :
-
-1. **Méthode 1** : Ouvrez **Préférences Système** > **Sécurité et confidentialité** > **Général**
-   - Cliquez sur "Ouvrir quand même" pour autoriser l'application
-
-2. **Méthode 2** : Faites un clic droit (ou Ctrl+clic) sur l'application
-   - Sélectionnez "Ouvrir" dans le menu contextuel
-   - Confirmez l'ouverture
-
-## Personnalisation
-
-### Modifier la version
-
-Éditez les fichiers suivants :
-
-- `macos/Info.plist` : Modifiez `CFBundleShortVersionString` et `CFBundleVersion`
-- `macos/build-dmg.sh` : Modifiez la variable `VERSION`
-- `macos/pokerth-tracker.spec` : Modifiez le paramètre `version` dans la section `BUNDLE`
-
-### Modifier l'icône
-
-L'icône est générée automatiquement à partir du fichier SVG dans `appimage/pokerth-tracker.svg`.
-
-Pour utiliser une icône personnalisée :
-1. Créez un fichier `macos/icon.icns`
-2. Le script de build l'utilisera automatiquement
-
-### Personnaliser l'apparence du DMG
-
-Le script configure automatiquement :
-- Taille de la fenêtre : 500x350 pixels
-- Vue : Icônes (128x128)
-- Disposition : Application à gauche, lien Applications à droite
-
-Pour une personnalisation avancée, modifiez la section `create_dmg()` dans `build-dmg.sh`.
-
-## Dépannage
-
-### Erreur : "PyInstaller not found"
-
-Installez PyInstaller manuellement :
-
+### Erreur: "PyInstaller not found"
 ```bash
 pip3 install pyinstaller
 ```
 
-### Erreur : "Unable to create icon"
-
-L'application fonctionnera quand même avec l'icône par défaut. Pour une icône personnalisée :
-
+### Erreur: "command not found: lipo"
 ```bash
-brew install librsvg
+xcode-select --install
 ```
-
-### Erreur : "hdiutil: create failed"
-
-Assurez-vous d'avoir suffisamment d'espace disque (au moins 200 MB libres).
 
 ### L'application ne se lance pas
-
-Vérifiez les logs dans la Console macOS :
-
-1. Ouvrez **Console.app**
-2. Recherchez les messages d'erreur liés à "PokerTH Tracker"
-
-## Signature de code (pour distribution)
-
-Pour distribuer l'application en dehors de votre système, vous devrez la signer avec un certificat de développeur Apple :
-
+1. Testez directement l'app : `open "dist/PokerTH Tracker.app"`
+2. Vérifiez les logs : `Console.app` → Rechercher "PokerTH"
+3. Lancez en mode debug :
 ```bash
-# Signer le bundle .app
-codesign --deep --force --verify --verbose --sign "Developer ID Application: Your Name" \
-  "macos/dist/PokerTH Tracker.app"
-
-# Signer le DMG
-codesign --force --verify --verbose --sign "Developer ID Application: Your Name" \
-  "PokerTH_Tracker-macOS.dmg"
+"dist/PokerTH Tracker.app/Contents/MacOS/PokerTH Tracker"
 ```
 
-Pour obtenir un certificat de développeur, inscrivez-vous au programme Apple Developer (99 USD/an).
+### Le DMG ne se crée pas correctement
+- Assurez-vous qu'aucun volume "PokerTH Tracker" n'est déjà monté
+- Démontez manuellement : `hdiutil detach "/Volumes/PokerTH Tracker"`
 
-## Notarisation (pour macOS 10.15+)
-
-Pour que l'application s'exécute sans avertissement sur macOS Catalina et plus récent :
-
+### Problème de permissions
 ```bash
-# Soumettre pour notarisation
-xcrun notarytool submit "PokerTH_Tracker-macOS.dmg" \
-  --apple-id "your@email.com" \
-  --password "app-specific-password" \
-  --team-id "TEAM_ID" \
-  --wait
-
-# Agrafer le ticket de notarisation
-xcrun stapler staple "PokerTH_Tracker-macOS.dmg"
+chmod +x macos/*.sh
 ```
 
-## Support
+## 📦 Distribution
 
-Pour les problèmes de build ou d'installation, créez une issue sur le dépôt GitHub du projet.
+### Signature de code (pour distribution publique)
+
+Pour distribuer en dehors du Mac App Store :
+
+1. Obtenez un certificat "Developer ID Application"
+2. Ajoutez dans `pokerth-tracker.spec` :
+```python
+codesign_identity='Developer ID Application: Votre Nom (TEAM_ID)',
+```
+
+3. Notarize l'application :
+```bash
+xcrun notarytool submit "dist/PokerTH-Tracker-X.X.X-Universal.dmg" \
+    --apple-id "votre@email.com" \
+    --password "mot-de-passe-app-specifique" \
+    --team-id "TEAM_ID" \
+    --wait
+```
+
+### Distribution simple (sans signature)
+
+Le DMG peut être distribué directement, mais les utilisateurs devront :
+1. Clic droit → Ouvrir (première fois)
+2. Autoriser dans Préférences Système → Confidentialité et sécurité
+
+## 🔄 Workflow de release
+
+1. Mettez à jour le numéro de version dans :
+   - `pokerth-tracker.spec` (`version=`)
+   - `create-dmg.sh` (`VERSION=`)
+
+2. Créez le build :
+```bash
+./macos/build-all.sh
+```
+
+3. Testez l'application :
+```bash
+open "macos/dist/PokerTH Tracker.app"
+```
+
+4. Distribuez le DMG :
+```bash
+macos/dist/PokerTH-Tracker-X.X.X-Universal.dmg
+```
+
+## 📝 Notes
+
+- Les builds sont créés dans `macos/dist/`
+- Les fichiers temporaires sont dans `macos/build/`
+- Les deux dossiers sont ignorés par git (via `.gitignore`)
+- Le binaire universel fonctionne automatiquement selon l'architecture du Mac
+
+## 🆘 Support
+
+En cas de problème :
+1. Vérifiez les logs de build
+2. Testez l'application avant de créer le DMG
+3. Assurez-vous que toutes les dépendances sont installées
+
+---
+
+**Bon build! 🚀**
