@@ -21,14 +21,14 @@ DIST_DIR="$MACOS_DIR/dist"
 APP_NAME="PokerTH Tracker"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 VERSION="1.0.0"
-DMG_NAME="PokerTH-Tracker-$VERSION-Universal"
+DMG_NAME="PokerTH-Tracker-$VERSION-AppleSilicon"
 DMG_TEMP="$DIST_DIR/dmg_temp"
 DMG_FINAL="$DIST_DIR/$DMG_NAME.dmg"
 
 # Vérification que l'app existe
 if [ ! -d "$APP_BUNDLE" ]; then
     echo -e "${RED}Erreur: L'application n'existe pas à $APP_BUNDLE${NC}"
-    echo "Exécutez d'abord: ./macos/build-universal.sh"
+    echo "Exécutez d'abord: ./build.sh"
     exit 1
 fi
 
@@ -130,9 +130,9 @@ echo "==========================================${NC}"
 echo "Fichier: $DMG_FINAL"
 echo "Taille: $DMG_SIZE"
 echo ""
-echo "Le DMG contient un binaire universel compatible:"
-echo "  • Intel (x86_64)"
-echo "  • Apple Silicon (arm64)"
+echo "Compatibilité:"
+echo "  • Architecture: Apple Silicon (arm64)"
+echo "  • Processeurs: M1, M2, M3, M4"
 echo "  • macOS 13.0 (Ventura) et supérieur"
 echo ""
 echo -e "${GREEN}Pour distribuer l'application, partagez ce fichier DMG.${NC}"
