@@ -59,6 +59,9 @@ class LogWatcher(QObject):
         # Baseline: stats du fichier courant au dernier import (évite le double-comptage)
         self._imported_file_stats: dict[str, PlayerStats] = {}
 
+        # Flag d'arrêt (positionné depuis le thread UI, lu depuis le watcher thread)
+        self._stopped = False
+
         # Watcher Qt pour les fichiers (créé dans start() pour être dans le bon thread)
         self._file_watcher: QFileSystemWatcher | None = None
 
@@ -95,6 +98,7 @@ class LogWatcher(QObject):
     @pyqtSlot()
     def stop(self) -> None:
         """Arrête la surveillance."""
+        self._stopped = True
         if self._poll_timer:
             self._poll_timer.stop()
         if self._file_watcher:
@@ -149,35 +153,50 @@ class LogWatcher(QObject):
 
     def _on_directory_changed(self, path: str) -> None:
         """Appelé quand le contenu du répertoire change."""
+        if self._stopped:
+            return
         self._find_current_log()
 
     def _on_file_changed(self, path: str) -> None:
         """Appelé quand un fichier surveillé change."""
+        if self._stopped:
+            return
         if self.current_log and Path(path) == self.current_log:
             self._process_updates()
 
     def _poll_for_changes(self) -> None:
         """Vérifie périodiquement les changements."""
+        if self._stopped:
+            return
         self._find_current_log()
         if self.current_log and self.parser:
             self._process_updates()
 
     def _process_updates(self) -> None:
         """Traite les nouvelles données de la table en cours avec agrégation DB."""
-        if not self.parser or not self.calculator:
+        if self._stopped or not self.parser or not self.calculator:
             return
 
         try:
             # Rafraîchit la connexion pour voir les nouvelles données
             self.parser.refresh()
 
+            if self._stopped:
+                return
+
             # Vérifie s'il y a de nouvelles actions
             current_max_action = self.parser.get_last_processed_action_id()
             if current_max_action <= self.last_action_id:
                 return
 
+            if self._stopped:
+                return
+
             # Calcule les stats du fichier actuel uniquement (pas de fusion DB)
             self._current_file_stats = self.calculator.calculate_all_players_stats()
+
+            if self._stopped:
+                return
 
             # Met à jour le dernier ActionID traité (en mémoire seulement)
             self.last_action_id = current_max_action

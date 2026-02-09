@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QGroupBox, QStatusBar,
     QMessageBox, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QSettings, QThread, QMetaObject, Q_ARG
+from PyQt6.QtCore import Qt, QSettings, QThread
 from PyQt6.QtGui import QAction
 
 
@@ -250,15 +250,12 @@ class MainWindow(QMainWindow):
     def _stop_tracking(self) -> None:
         """Arrête le tracking."""
         if self.log_watcher and self._watcher_thread:
-            # Invoque stop() dans le thread du watcher (thread-safe)
-            QMetaObject.invokeMethod(
-                self.log_watcher, "stop",
-                Qt.ConnectionType.QueuedConnection
-            )
-            # Demande au thread de quitter (après stop())
+            # Pose le flag d'arrêt immédiatement (thread-safe, court-circuite le traitement)
+            self.log_watcher._stopped = True
+            # Demande au thread de quitter
             self._watcher_thread.quit()
-            # Attend la fin du thread avec timeout
-            if not self._watcher_thread.wait(5000):
+            # Attend la fin du thread avec un court timeout
+            if not self._watcher_thread.wait(3000):
                 self._watcher_thread.terminate()
                 self._watcher_thread.wait(1000)
             self._watcher_thread = None
@@ -576,10 +573,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         """Appelé à la fermeture."""
         if self.log_watcher and self._watcher_thread:
-            QMetaObject.invokeMethod(
-                self.log_watcher, "stop",
-                Qt.ConnectionType.QueuedConnection
-            )
+            self.log_watcher._stopped = True
             self._watcher_thread.quit()
             if not self._watcher_thread.wait(3000):
                 self._watcher_thread.terminate()

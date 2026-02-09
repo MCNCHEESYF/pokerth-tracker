@@ -38,7 +38,7 @@ class LogParser:
                 f"file:{self.db_path}?mode=ro",
                 uri=True,
                 check_same_thread=False,
-                timeout=10
+                timeout=2
             )
             self._conn.row_factory = sqlite3.Row
         return self._conn
