@@ -139,11 +139,34 @@ configure_appdir() {
     mkdir -p "${APPDIR}/usr/share/applications"
     cp "${SCRIPT_DIR}/pokerth-tracker.desktop" "${APPDIR}/usr/share/applications/pokerth-tracker.desktop"
 
-    # Copier l'icone a la racine et dans les repertoires standard
+    # Convertir le SVG en PNG (requis pour l'icone dans les explorateurs de fichiers)
     cp "${SCRIPT_DIR}/pokerth-tracker.svg" "${APPDIR}/pokerth-tracker.svg"
+    if command -v rsvg-convert &>/dev/null; then
+        rsvg-convert -w 256 -h 256 "${SCRIPT_DIR}/pokerth-tracker.svg" -o "${APPDIR}/pokerth-tracker.png"
+    elif command -v convert &>/dev/null; then
+        convert -background none -density 256 "${SCRIPT_DIR}/pokerth-tracker.svg" -resize 256x256 "${APPDIR}/pokerth-tracker.png"
+    elif command -v magick &>/dev/null; then
+        magick -background none -density 256 "${SCRIPT_DIR}/pokerth-tracker.svg" -resize 256x256 "${APPDIR}/pokerth-tracker.png"
+    else
+        log_warn "Aucun outil de conversion SVG->PNG trouve (rsvg-convert, convert, magick)."
+        log_warn "L'AppImage n'aura pas d'icone dans l'explorateur de fichiers."
+    fi
+
+    # .DirIcon doit pointer vers le PNG pour les explorateurs
+    rm -f "${APPDIR}/.DirIcon"
+    if [ -f "${APPDIR}/pokerth-tracker.png" ]; then
+        ln -s pokerth-tracker.png "${APPDIR}/.DirIcon"
+    fi
+
+    # Icones dans les repertoires standard
     local icon_dir="${APPDIR}/usr/share/icons/hicolor/scalable/apps"
     mkdir -p "${icon_dir}"
     cp "${SCRIPT_DIR}/pokerth-tracker.svg" "${icon_dir}/pokerth-tracker.svg"
+    if [ -f "${APPDIR}/pokerth-tracker.png" ]; then
+        local icon_png_dir="${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+        mkdir -p "${icon_png_dir}"
+        cp "${APPDIR}/pokerth-tracker.png" "${icon_png_dir}/pokerth-tracker.png"
+    fi
 
     # Creer un fichier AppStream metainfo valide
     mkdir -p "${APPDIR}/usr/share/metainfo"
