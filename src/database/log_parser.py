@@ -38,7 +38,7 @@ class LogParser:
                 f"file:{self.db_path}?mode=ro",
                 uri=True,
                 check_same_thread=False,
-                timeout=2
+                timeout=10
             )
             self._conn.row_factory = sqlite3.Row
         return self._conn
@@ -52,6 +52,15 @@ class LogParser:
     def refresh(self) -> None:
         """Ferme et rouvre la connexion pour voir les nouvelles données."""
         self.close()
+
+    def has_actions(self) -> bool:
+        """Vérifie si le fichier de log contient au moins une action."""
+        try:
+            conn = self._connect()
+            cursor = conn.execute("SELECT 1 FROM Action LIMIT 1")
+            return cursor.fetchone() is not None
+        except sqlite3.OperationalError:
+            return False
 
     def get_session_info(self) -> GameSession | None:
         """Récupère les informations de la session."""

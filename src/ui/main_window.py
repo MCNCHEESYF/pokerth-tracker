@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QGroupBox, QStatusBar,
     QMessageBox, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QSettings, QThread
+from PyQt6.QtCore import Qt, QSettings, QThread, QMetaObject, Q_ARG
 from PyQt6.QtGui import QAction
 
 
@@ -24,6 +24,7 @@ class NumericTableWidgetItem(QTableWidgetItem):
             return self._value < other._value
         return super().__lt__(other)
 
+from ..database.log_parser import LogParser
 from ..database.stats_db import StatsDB
 from ..database.models import PlayerStats
 from ..watcher.log_watcher import LogWatcher
@@ -216,6 +217,33 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Vérifie que le dernier log contient des actions
+        pdb_files = list(self.log_dir.glob("pokerth-log-*.pdb"))
+        if not pdb_files:
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"No log files found in:\n{self.log_dir}"
+            )
+            return
+
+        latest = max(pdb_files, key=lambda p: p.stat().st_mtime)
+        try:
+            parser = LogParser(latest)
+            has_data = parser.has_actions()
+            parser.close()
+        except Exception:
+            has_data = False
+
+        if not has_data:
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"The latest log file contains no actions yet:\n{latest.name}\n\n"
+                "Start a game in PokerTH first, then try again."
+            )
+            return
+
         # Crée le thread pour le watcher
         self._watcher_thread = QThread(self)
 
@@ -250,12 +278,15 @@ class MainWindow(QMainWindow):
     def _stop_tracking(self) -> None:
         """Arrête le tracking."""
         if self.log_watcher and self._watcher_thread:
-            # Pose le flag d'arrêt immédiatement (thread-safe, court-circuite le traitement)
-            self.log_watcher._stopped = True
-            # Demande au thread de quitter
+            # Invoque stop() dans le thread du watcher (thread-safe)
+            QMetaObject.invokeMethod(
+                self.log_watcher, "stop",
+                Qt.ConnectionType.QueuedConnection
+            )
+            # Demande au thread de quitter (après stop())
             self._watcher_thread.quit()
-            # Attend la fin du thread avec un court timeout
-            if not self._watcher_thread.wait(3000):
+            # Attend la fin du thread avec timeout
+            if not self._watcher_thread.wait(5000):
                 self._watcher_thread.terminate()
                 self._watcher_thread.wait(1000)
             self._watcher_thread = None
@@ -573,7 +604,10 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         """Appelé à la fermeture."""
         if self.log_watcher and self._watcher_thread:
-            self.log_watcher._stopped = True
+            QMetaObject.invokeMethod(
+                self.log_watcher, "stop",
+                Qt.ConnectionType.QueuedConnection
+            )
             self._watcher_thread.quit()
             if not self._watcher_thread.wait(3000):
                 self._watcher_thread.terminate()
