@@ -2,13 +2,14 @@
 
 from pathlib import Path
 
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QTableWidget,
     QTableWidgetItem, QHeaderView, QGroupBox, QStatusBar,
     QMessageBox, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QSettings, QThread, QMetaObject, Q_ARG
+from PyQt6.QtCore import Qt, QSettings, QThread, QMetaObject
 from PyQt6.QtGui import QAction
 
 
@@ -30,6 +31,7 @@ from ..database.models import PlayerStats
 from ..watcher.log_watcher import LogWatcher
 from .hud_overlay import HUDManager
 from .hud_settings import HUDSettingsDialog
+from .range_window import RangeWindow
 from config import POKERTH_LOG_DIR, STATS_DB_PATH
 
 
@@ -43,6 +45,7 @@ class MainWindow(QMainWindow):
         self._watcher_thread: QThread | None = None
         self.log_watcher: LogWatcher | None = None
         self.hud: HUDManager | None = None
+        self.range_window: RangeWindow | None = None
         self.is_tracking = False
         # Flag pour savoir si le HUD attend des stats
         self._hud_waiting_for_stats = False
@@ -98,9 +101,14 @@ class MainWindow(QMainWindow):
         self.show_hud_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.show_hud_btn)
 
+        self.show_range_btn = QPushButton("Show Range")
+        self.show_range_btn.clicked.connect(self._toggle_range)
+        self.show_range_btn.setEnabled(False)
+        self.show_range_btn.setMinimumHeight(40)
+        controls_layout.addWidget(self.show_range_btn)
+
         self.refresh_btn = QPushButton("Import")
-        self.refresh_btn.clicked.connect(self._refresh_stats)
-        self.refresh_btn.setEnabled(True)  # Toujours actif pour permettre l'import
+        self.refresh_btn.clicked.connect(self._show_import_menu)
         self.refresh_btn.setMinimumHeight(40)
         controls_layout.addWidget(self.refresh_btn)
 
@@ -127,6 +135,7 @@ class MainWindow(QMainWindow):
         self.stats_table.setSortingEnabled(True)
         # Tri par défaut: nombre de mains décroissant
         self.stats_table.sortByColumn(10, Qt.SortOrder.DescendingOrder)
+        self.stats_table.itemSelectionChanged.connect(self._on_player_selected)
         stats_layout.addWidget(self.stats_table)
 
         layout.addWidget(stats_group)
@@ -337,8 +346,7 @@ class MainWindow(QMainWindow):
                 self.hud.show()
                 self.show_hud_btn.setText("Hide HUD")
 
-    def _refresh_stats(self) -> None:
-        """Déclenche l'import de tous les logs (même comportement que Importer l'historique)."""
+    def _show_import_menu(self) -> None:
         self._import_all_logs()
 
     def _on_stats_updated(self, stats: dict[str, PlayerStats]) -> None:
@@ -469,51 +477,34 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("Stats cleared")
 
     def _import_all_logs(self) -> None:
-        """Importe tous les fichiers .pdb du dossier de logs."""
-        # Vérifie qu'un import n'est pas déjà en cours
+        """Importe de façon incrémentale les fichiers .pdb du dossier de logs."""
         if self._import_thread is not None:
-            QMessageBox.warning(
-                self,
-                "Import",
-                "An import is already in progress."
-            )
+            QMessageBox.warning(self, "Import", "An import is already in progress.")
             return
 
-        # Compte les fichiers
-        pdb_files = list(self.log_dir.glob("pokerth-log-*.pdb"))
+        pdb_files = sorted(self.log_dir.glob("pokerth-log-*.pdb"))
         if not pdb_files:
-            QMessageBox.information(
-                self,
-                "Import",
-                f"No log files found in:\n{self.log_dir}"
-            )
+            QMessageBox.information(self, "Import", f"No log files found in:\n{self.log_dir}")
             return
 
-        # Confirmation
         reply = QMessageBox.question(
             self,
             "Import history",
-            f"Import {len(pdb_files)} log files?\n\n"
-            "Statistics will be merged with existing data.",
+            f"{len(pdb_files)} log file(s) found.\n\n"
+            "Only new or updated files will be processed.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # Crée le thread pour l'import
         self._import_thread = QThread(self)
-
-        # Crée un watcher temporaire (SANS parent pour moveToThread)
         self._import_watcher = LogWatcher(self.log_dir, self.stats_db)
         self._import_watcher.moveToThread(self._import_thread)
 
-        # Connecte les signaux de progrès et de fin
         self._import_watcher.import_progress.connect(self._on_import_progress)
         self._import_watcher.import_finished.connect(self._on_import_finished)
         self._import_watcher.import_error.connect(self._on_import_error)
 
-        # Démarre l'import quand le thread démarre
         self._import_thread.started.connect(self._import_watcher.request_import_all_logs)
 
         # Progress dialog
@@ -537,11 +528,12 @@ class MainWindow(QMainWindow):
 
     def _on_import_finished(self, imported: int, stats: dict[str, PlayerStats]) -> None:
         """Appelé quand l'import est terminé."""
-        self._cleanup_import()
+        # Remplace la progress dialog par le summary sans délai visible
+        if self._import_progress:
+            self._import_progress.close()
+            self._import_progress = None
 
-        # Rafraîchit l'affichage (les stats viennent du thread de l'import)
         self._all_stats = stats
-        self._refresh_table_display()
 
         QMessageBox.information(
             self,
@@ -549,34 +541,37 @@ class MainWindow(QMainWindow):
             f"{imported} files imported successfully.\n"
             f"{len(self._all_stats)} players in database."
         )
+
+        # Nettoyage et rafraîchissement après que l'utilisateur a cliqué OK
+        self._cleanup_thread()
+        self._refresh_table_display()
         self.status_bar.showMessage(f"Import completed: {imported} files")
 
     def _on_import_error(self, error: str) -> None:
         """Appelé en cas d'erreur lors de l'import."""
-        self._cleanup_import()
-
-        QMessageBox.warning(
-            self,
-            "Error",
-            f"Error during import:\n{error}"
-        )
-
-    def _on_import_canceled(self) -> None:
-        """Appelé quand l'utilisateur annule l'import."""
-        self._cleanup_import()
-        self.status_bar.showMessage("Import canceled")
-
-    def _cleanup_import(self) -> None:
-        """Nettoie les ressources d'import."""
         if self._import_progress:
             self._import_progress.close()
             self._import_progress = None
 
-        if self._import_thread:
-            self._import_thread.quit()
-            self._import_thread.wait(3000)
-            self._import_thread = None
+        QMessageBox.warning(self, "Error", f"Error during import:\n{error}")
+        self._cleanup_thread()
 
+    def _on_import_canceled(self) -> None:
+        """Appelé quand l'utilisateur annule l'import."""
+        if self._import_progress:
+            self._import_progress.close()
+            self._import_progress = None
+
+        self._cleanup_thread()
+        self.status_bar.showMessage("Import canceled")
+
+    def _cleanup_thread(self) -> None:
+        """Arrête et libère le thread d'import sans bloquer le thread UI."""
+        if self._import_thread:
+            thread = self._import_thread
+            self._import_thread = None
+            thread.quit()
+            thread.finished.connect(thread.deleteLater)
         self._import_watcher = None
 
     def _open_hud_settings(self) -> None:
@@ -588,6 +583,12 @@ class MainWindow(QMainWindow):
             # Demande les stats de manière asynchrone
             if self.log_watcher:
                 self.log_watcher.request_table_stats()
+
+    def closeEvent(self, event) -> None:
+        """Ferme la fenêtre de range si elle est ouverte avant de quitter."""
+        if self.range_window is not None:
+            self.range_window.close()
+        super().closeEvent(event)
 
     def _show_about(self) -> None:
         """Affiche la boîte de dialogue À propos."""
@@ -601,19 +602,40 @@ class MainWindow(QMainWindow):
             "LONG LIVE PokerTH !"
         )
 
-    def closeEvent(self, event) -> None:
-        """Appelé à la fermeture."""
-        if self.log_watcher and self._watcher_thread:
-            QMetaObject.invokeMethod(
-                self.log_watcher, "stop",
-                Qt.ConnectionType.QueuedConnection
-            )
-            self._watcher_thread.quit()
-            if not self._watcher_thread.wait(3000):
-                self._watcher_thread.terminate()
+    def _on_range_window_closed(self) -> None:
+        """Appelé quand la fenêtre de range est fermée."""
+        self.range_window = None
+        self.show_range_btn.setText("Show Range")
 
-        if self.hud:
-            self.hud.close()
-            self.hud = None
-        self._save_settings()
-        event.accept()
+    def _on_player_selected(self) -> None:
+        """Active le bouton Range quand un joueur est sélectionné, et met à jour la range si visible."""
+        row = self.stats_table.currentRow()
+        name_item = self.stats_table.item(row, 0) if row >= 0 else None
+        self.show_range_btn.setEnabled(name_item is not None)
+
+        if name_item is None or self.range_window is None or not self.range_window.isVisible():
+            return
+
+        player_name = name_item.text()
+        self.range_window.update_data(player_name, self.stats_db.get_player_combos(player_name))
+
+    def _toggle_range(self) -> None:
+        """Affiche/masque la fenêtre de range pour le joueur sélectionné."""
+        if self.range_window is not None and self.range_window.isVisible():
+            self.range_window.hide()
+            self.show_range_btn.setText("Show Range")
+            return
+
+        row = self.stats_table.currentRow()
+        if row < 0:
+            return
+        name_item = self.stats_table.item(row, 0)
+        if name_item is None:
+            return
+        player_name = name_item.text()
+
+        if self.range_window is None:
+            self.range_window = RangeWindow()
+            self.range_window.destroyed.connect(self._on_range_window_closed)
+        self.range_window.update_data(player_name, self.stats_db.get_player_combos(player_name))
+        self.show_range_btn.setText("Hide Range")

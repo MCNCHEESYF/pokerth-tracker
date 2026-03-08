@@ -228,3 +228,5 @@ windows/dist/
 
 # Claude
 .claude/*
+
+*.pdb

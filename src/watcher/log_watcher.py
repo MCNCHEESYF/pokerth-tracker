@@ -290,7 +290,7 @@ class LogWatcher(QObject):
         self._imported_file_stats = dict(self._current_file_stats)
 
     def import_all_logs(self, progress_callback: Callable[[int, int, str], None] | None = None) -> int:
-        """Importe tous les fichiers .pdb du répertoire de logs.
+        """Importe les fichiers .pdb du répertoire de logs.
 
         Args:
             progress_callback: Fonction appelée avec (current, total, filename) pour le progrès
@@ -298,38 +298,65 @@ class LogWatcher(QObject):
         Returns:
             Nombre de fichiers importés
         """
-        pdb_files = sorted(self.log_dir.glob("pokerth-log-*.pdb"))
+        since = getattr(self, '_import_since', None)
+        all_files = sorted(self.log_dir.glob("pokerth-log-*.pdb"))
+        if since is not None:
+            from datetime import datetime
+            pdb_files = [f for f in all_files if datetime.fromtimestamp(f.stat().st_mtime) >= since]
+        else:
+            pdb_files = all_files
         total = len(pdb_files)
         imported = 0
-
-        # IMPORTANT: Vide la base avant l'import pour éviter les doublons
-        self.stats_db.clear_all_stats()
 
         for i, pdb_file in enumerate(pdb_files):
             if progress_callback:
                 progress_callback(i + 1, total, pdb_file.name)
 
             try:
-                # Parse le fichier
                 parser = LogParser(pdb_file)
+                current_max = parser.get_last_processed_action_id()
+                stored_max = self.stats_db.get_last_processed_action(str(pdb_file))
+
+                if current_max <= stored_max:
+                    # Fichier déjà à jour — rien à faire
+                    parser.close()
+                    continue
+
+                # Calcule les nouvelles stats complètes du fichier
                 calculator = StatsCalculator(parser)
+                new_file_stats = calculator.calculate_all_players_stats()
 
-                # Calcule les stats de tous les joueurs du fichier
-                file_stats = calculator.calculate_all_players_stats()
+                # Soustrait l'ancienne contribution de ce fichier (si déjà importé)
+                old_file_stats = self.stats_db.get_imported_file_stats(str(pdb_file))
+                if old_file_stats:
+                    for old_stats in old_file_stats.values():
+                        self.stats_db.subtract_stats(old_stats)
 
-                # Fusionne avec les stats existantes
-                for player_name, stats in file_stats.items():
+                # Ajoute les nouvelles stats
+                for stats in new_file_stats.values():
                     self.stats_db.merge_stats(stats)
 
-                # Marque ce fichier comme traité avec son dernier ActionID et ses stats (baseline)
-                last_action = parser.get_last_processed_action_id()
-                stats_json = json.dumps({name: asdict(stats) for name, stats in file_stats.items()})
-                self.stats_db.set_last_processed_action(str(pdb_file), last_action, stats_json)
+                # Soustrait les anciennes ranges de ce fichier (si déjà importées)
+                old_file_ranges = self.stats_db.get_file_ranges(str(pdb_file))
+                if old_file_ranges:
+                    self.stats_db.subtract_file_ranges(old_file_ranges)
 
+                # Calcule et stocke les nouvelles ranges
+                new_file_ranges: dict[str, list] = {}
+                for player_name in new_file_stats:
+                    combos = parser.get_player_vpip_combos(player_name)
+                    new_file_ranges[player_name] = [list(c) for c in combos]
+                    self.stats_db.merge_player_combos(player_name, combos)
+
+                # Persiste les métadonnées du fichier
+                stats_json = json.dumps({name: asdict(s) for name, s in new_file_stats.items()})
+                ranges_json = json.dumps(new_file_ranges)
+                self.stats_db.set_last_processed_action(str(pdb_file), current_max, stats_json, ranges_json)
+
+                parser.close()
                 imported += 1
 
             except Exception as e:
-                # Log l'erreur mais continue avec les autres fichiers
                 print(f"Erreur lors de l'import de {pdb_file.name}: {e}")
 
         # Met à jour le last_action_id pour le fichier actuel si on le surveille

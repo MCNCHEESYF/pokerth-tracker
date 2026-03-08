@@ -6,6 +6,28 @@ from typing import Generator
 
 from .models import HandAction, GameSession
 
+# Noms des rangs dans l'ordre PokerTH (card % 13 → index)
+_CARD_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
+
+
+def _cards_to_combo(card1: int, card2: int) -> str:
+    """Convertit deux entiers de carte en nom de combinaison (ex: 'AKs', 'TT', '76o').
+
+    Encodage PokerTH : value = card % 13  (0=2 … 12=A)
+                       suit  = card // 13 (0=c, 1=d, 2=h, 3=s)
+    """
+    v1, s1 = card1 % 13, card1 // 13
+    v2, s2 = card2 % 13, card2 // 13
+    # Rang le plus élevé en premier
+    if v1 < v2:
+        v1, v2 = v2, v1
+        s1, s2 = s2, s1
+    r1 = _CARD_RANKS[v1]
+    r2 = _CARD_RANKS[v2]
+    if v1 == v2:
+        return r1 + r2          # paire
+    return r1 + r2 + ('s' if s1 == s2 else 'o')
+
 
 class LogParser:
     """Parse les fichiers de log SQLite de PokerTH."""
@@ -52,6 +74,16 @@ class LogParser:
     def refresh(self) -> None:
         """Ferme et rouvre la connexion pour voir les nouvelles données."""
         self.close()
+
+    def get_last_processed_action_id(self) -> int:
+        """Retourne le plus grand ActionID présent dans la base."""
+        try:
+            conn = self._connect()
+            cursor = conn.execute("SELECT MAX(ActionID) FROM Action")
+            row = cursor.fetchone()
+            return row[0] if row and row[0] is not None else 0
+        except sqlite3.OperationalError:
+            return 0
 
     def has_actions(self) -> bool:
         """Vérifie si le fichier de log contient au moins une action."""
@@ -191,6 +223,51 @@ class LogParser:
                     amount=row["Amount"],
                 )
 
+    def get_hands_played_by_player(self, player_name: str) -> set[tuple[int, int]]:
+        """Retourne l'ensemble des (game_id, hand_id) où le joueur était présent."""
+        conn = self._connect()
+        cursor = conn.execute(
+            "SELECT UniqueGameID FROM Player WHERE Player = ?",
+            (player_name,)
+        )
+        game_ids = [row["UniqueGameID"] for row in cursor]
+        if not game_ids:
+            return set()
+
+        placeholders = ",".join("?" * len(game_ids))
+        cursor = conn.execute(
+            f"SELECT UniqueGameID, HandID FROM Hand WHERE UniqueGameID IN ({placeholders})",
+            game_ids
+        )
+        return {(row["UniqueGameID"], row["HandID"]) for row in cursor}
+
+    def hand_has_showdown(self, game_id: int, hand_id: int) -> bool:
+        """Vérifie si une main a eu un showdown (round 4)."""
+        conn = self._connect()
+        cursor = conn.execute(
+            "SELECT 1 FROM Action WHERE UniqueGameID = ? AND HandID = ? AND BeRo = 4 LIMIT 1",
+            (game_id, hand_id)
+        )
+        return cursor.fetchone() is not None
+
+    def get_showdown_winner(self, game_id: int, hand_id: int) -> int | None:
+        """Retourne le siège du gagnant au showdown (première action 'wins' au round 4)."""
+        conn = self._connect()
+        cursor = conn.execute(
+            "SELECT Player FROM Action WHERE UniqueGameID = ? AND HandID = ? AND BeRo = 4 AND Action = 'wins' LIMIT 1",
+            (game_id, hand_id)
+        )
+        row = cursor.fetchone()
+        return row["Player"] if row else None
+
+    def get_current_table_players(self) -> list[str]:
+        """Retourne les noms des joueurs de la partie la plus récente."""
+        conn = self._connect()
+        cursor = conn.execute(
+            "SELECT Player FROM Player WHERE UniqueGameID = (SELECT MAX(UniqueGameID) FROM Player)"
+        )
+        return [row["Player"] for row in cursor]
+
     def get_all_actions_by_player(self, player_name: str) -> Generator[HandAction, None, None]:
         """Récupère toutes les actions d'un joueur (tous rounds)."""
         conn = self._connect()
@@ -210,7 +287,6 @@ class LogParser:
             ORDER BY a.UniqueGameID, a.HandID, a.ActionID
         """
         cursor = conn.execute(query, list(player_games.keys()))
-
         for row in cursor:
             game_id = row["UniqueGameID"]
             if row["Player"] == player_games.get(game_id):
@@ -223,9 +299,29 @@ class LogParser:
                     amount=row["Amount"],
                 )
 
-    def get_hands_played_by_player(self, player_name: str) -> set[tuple[int, int]]:
-        """Récupère les (game_id, hand_id) où le joueur a joué."""
-        hands: set[tuple[int, int]] = set()
+    # Positions par nombre de joueurs (offset depuis le dealer, 0=BTN)
+    _POSITION_NAMES: dict[int, list[str]] = {
+        2:  ['BTN', 'BB'],
+        3:  ['BTN', 'SB', 'BB'],
+        4:  ['BTN', 'SB', 'BB', 'UTG'],
+        5:  ['BTN', 'SB', 'BB', 'UTG', 'CO'],
+        6:  ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'],
+        7:  ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'HJ', 'CO'],
+        8:  ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'HJ', 'CO'],
+        9:  ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'HJ', 'CO'],
+        10: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'MP', 'MP+1', 'HJ', 'CO'],
+    }
+
+    def get_player_vpip_combos(self, player_name: str) -> list[tuple[str, str, int]]:
+        """Retourne les combos VPIP du joueur avec position et nombre de joueurs.
+
+        Seules les mains où le joueur a volontairement mis de l'argent preflop
+        (call, bet ou raise — hors blind forcée) et dont les cartes sont connues
+        (showdown) sont incluses.
+
+        Returns:
+            Liste de (combo, position, n_players) par main VPIP visible.
+        """
         conn = self._connect()
         cursor = conn.execute(
             "SELECT UniqueGameID, Seat FROM Player WHERE Player = ?",
@@ -234,82 +330,61 @@ class LogParser:
         player_games = {row["UniqueGameID"]: row["Seat"] for row in cursor}
 
         if not player_games:
-            return hands
+            return []
 
+        # Collecte les (game_id, hand_id) où le joueur a VPIP'd preflop
         placeholders = ",".join("?" * len(player_games))
-        query = f"""
-            SELECT DISTINCT a.UniqueGameID, a.HandID, a.Player
-            FROM Action a
-            WHERE a.UniqueGameID IN ({placeholders})
-        """
-        cursor = conn.execute(query, list(player_games.keys()))
-
+        cursor = conn.execute(
+            f"""SELECT UniqueGameID, HandID, Player FROM Action
+                WHERE UniqueGameID IN ({placeholders})
+                AND BeRo = 0
+                AND Action IN ('calls', 'bets', 'is all in with')""",
+            list(player_games.keys())
+        )
+        vpip_hands: set[tuple[int, int]] = set()
         for row in cursor:
             game_id = row["UniqueGameID"]
             if row["Player"] == player_games.get(game_id):
-                hands.add((game_id, row["HandID"]))
+                vpip_hands.add((game_id, row["HandID"]))
 
-        return hands
-
-    def get_current_table_players(self) -> list[str]:
-        """Récupère les joueurs de la dernière partie (table actuelle)."""
-        conn = self._connect()
-        cursor = conn.execute(
-            "SELECT MAX(UniqueGameID) as max_id FROM Game"
-        )
-        row = cursor.fetchone()
-        if not row or row["max_id"] is None:
+        if not vpip_hands:
             return []
 
-        max_game_id = row["max_id"]
+        results: list[tuple[str, str, int]] = []
         cursor = conn.execute(
-            "SELECT Player FROM Player WHERE UniqueGameID = ? ORDER BY Seat",
-            (max_game_id,)
+            f"SELECT * FROM Hand WHERE UniqueGameID IN ({placeholders})",
+            list(player_games.keys())
         )
-        return [row["Player"] for row in cursor]
 
-    def get_last_processed_action_id(self) -> int:
-        """Récupère l'ID de la dernière action."""
-        conn = self._connect()
-        cursor = conn.execute("SELECT MAX(ActionID) as max_id FROM Action")
-        row = cursor.fetchone()
-        return row["max_id"] if row and row["max_id"] else 0
-
-    def get_actions_since(self, action_id: int) -> Generator[HandAction, None, None]:
-        """Récupère les actions depuis un certain ID (pour updates incrémentaux)."""
-        conn = self._connect()
-        cursor = conn.execute(
-            "SELECT * FROM Action WHERE ActionID > ? ORDER BY ActionID",
-            (action_id,)
-        )
         for row in cursor:
-            yield HandAction(
-                hand_id=row["HandID"],
-                game_id=row["UniqueGameID"],
-                betting_round=row["BeRo"],
-                player_seat=row["Player"],
-                action=row["Action"],
-                amount=row["Amount"],
-            )
+            game_id = row["UniqueGameID"]
+            hand_id = row["HandID"]
+            if (game_id, hand_id) not in vpip_hands:
+                continue
 
-    def hand_has_showdown(self, game_id: int, hand_id: int) -> bool:
-        """Vérifie si une main est allée jusqu'au showdown."""
-        conn = self._connect()
-        cursor = conn.execute(
-            "SELECT 1 FROM Action WHERE UniqueGameID = ? AND HandID = ? AND BeRo = 4 LIMIT 1",
-            (game_id, hand_id)
-        )
-        return cursor.fetchone() is not None
+            player_seat = player_games.get(game_id)
+            if player_seat is None:
+                continue
 
-    def get_showdown_winner(self, game_id: int, hand_id: int) -> int | None:
-        """Récupère le siège du gagnant au showdown (si disponible).
+            card1 = row[f"Seat_{player_seat}_Card_1"]
+            card2 = row[f"Seat_{player_seat}_Card_2"]
+            if card1 is None or card2 is None:
+                continue
 
-        Cherche l'action 'wins' dans le round showdown.
-        """
-        conn = self._connect()
-        cursor = conn.execute(
-            "SELECT Player FROM Action WHERE UniqueGameID = ? AND HandID = ? AND BeRo = 4 AND Action LIKE '%wins%' LIMIT 1",
-            (game_id, hand_id)
-        )
-        row = cursor.fetchone()
-        return row["Player"] if row else None
+            dealer_seat = row["Dealer_Seat"]
+            occupied = [s for s in range(1, 11) if row[f"Seat_{s}_Cash"] is not None]
+            n_players = len(occupied)
+
+            if dealer_seat in occupied and player_seat in occupied:
+                dealer_idx = occupied.index(dealer_seat)
+                player_idx = occupied.index(player_seat)
+                offset = (player_idx - dealer_idx) % n_players
+                names = self._POSITION_NAMES.get(n_players)
+                position = names[offset] if names else f"P{offset}"
+            else:
+                position = "?"
+
+            combo = _cards_to_combo(card1, card2)
+            results.append((combo, position, n_players))
+
+        return results

@@ -27,5 +27,44 @@ export QT_QPA_PLATFORM=xcb
 # XDG data pour les icones et themes
 export XDG_DATA_DIRS="${APPDIR}/usr/share:${XDG_DATA_DIRS:-/usr/share}"
 
+# Mode installation
+if [ "$1" = "--install" ]; then
+    INSTALL_NAME="pokerth-tracker"
+    DESKTOP_SRC="${APPDIR}/pokerth-tracker.desktop"
+    ICON_SRC="${APPDIR}/pokerth-tracker.png"
+
+    if [ ! -f "${DESKTOP_SRC}" ] || [ ! -f "${ICON_SRC}" ]; then
+        echo "Erreur : fichiers d'installation introuvables dans l'AppImage." >&2
+        exit 1
+    fi
+
+    if [ -z "${APPIMAGE}" ]; then
+        echo "Erreur : variable \$APPIMAGE non definie (lancez depuis le vrai .AppImage)." >&2
+        exit 1
+    fi
+
+    echo "Installation de PokerTH Tracker..."
+    sudo install -Dm755 "${APPIMAGE}"    "/usr/bin/${INSTALL_NAME}"
+    sudo install -Dm644 "${DESKTOP_SRC}" "/usr/share/applications/${INSTALL_NAME}.desktop"
+    sudo install -Dm644 "${ICON_SRC}"    "/usr/share/icons/hicolor/256x256/apps/${INSTALL_NAME}.png"
+    sudo update-desktop-database /usr/share/applications 2>/dev/null || true
+    sudo gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
+    echo "Installation terminee. Lancez 'pokerth-tracker' ou cherchez-le dans vos applications."
+    exit 0
+fi
+
+# Mode désinstallation
+if [ "$1" = "--uninstall" ]; then
+    INSTALL_NAME="pokerth-tracker"
+    echo "Désinstallation de PokerTH Tracker..."
+    sudo rm -f "/usr/bin/${INSTALL_NAME}"
+    sudo rm -f "/usr/share/applications/${INSTALL_NAME}.desktop"
+    sudo rm -f "/usr/share/icons/hicolor/256x256/apps/${INSTALL_NAME}.png"
+    sudo update-desktop-database /usr/share/applications 2>/dev/null || true
+    sudo gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
+    echo "Désinstallation terminée."
+    exit 0
+fi
+
 # Lancer l'application
 exec "${PYTHON_BIN}" "${APPDIR}/app/main.py" "$@"
