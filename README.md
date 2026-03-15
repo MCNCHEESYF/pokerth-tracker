@@ -1,3 +1,5 @@
+![PokerTH Tracker HUD](images/screen.png)
+
 # PokerTH Tracker
 
 A HUD (Heads-Up Display) and statistics system for [PokerTH](https://www.pokerth.net/). It analyses PokerTH log files in real time and displays each player's statistics directly on screen during a game.
@@ -21,6 +23,31 @@ A HUD (Heads-Up Display) and statistics system for [PokerTH](https://www.pokerth
 - Python 3.10+
 - pip
 - libxcb (Linux)
+
+### Setup (Released version)
+
+#### Windows
+Run portable Exe
+
+#### MacOs sillicon
+Open the dmg file and copy PokerTH-Tracker application to Applications
+
+#### Linux
+
+1. Make the applications executable
+```bash
+chmod +x PokerTH-Tracker-1.1.3-Linux-x86_64.AppImage
+```
+
+2. Install the application
+```bash
+./PokerTH-Tracker-1.1.3-Linux-x86_64.AppImage --install```
+```
+
+3. Run the application
+```bash
+pokerth-tracker
+``` from a terminal or find it in your application menu.
 
 ### Setup (From source)
 
