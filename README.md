@@ -22,7 +22,7 @@ A HUD (Heads-Up Display) and statistics system for [PokerTH](https://www.pokerth
 - pip
 - libxcb (Linux)
 
-### Setup
+### Setup (From source)
 
 1. Clone the repository:
 ```bash
