@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
 
@@ -30,6 +30,8 @@ def _cell_combo(row: int, col: int) -> str:
 class RangeWindow(QWidget):
     """Fenêtre affichant la range showdown d'un joueur avec filtres position/joueurs."""
 
+    closed = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Window)
@@ -38,7 +40,7 @@ class RangeWindow(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        self.setMinimumSize(560, 620)
+        self.setMinimumSize(570, 630)
         layout = QVBoxLayout(self)
         layout.setSpacing(6)
 
@@ -95,6 +97,10 @@ class RangeWindow(QWidget):
         layout.addLayout(legend_layout)
 
         self._init_grid_labels()
+
+    def closeEvent(self, event) -> None:
+        super().closeEvent(event)
+        self.closed.emit()
 
     def _init_grid_labels(self) -> None:
         """Initialise les cellules de la grille avec les noms de combos."""

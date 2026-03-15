@@ -585,9 +585,16 @@ class MainWindow(QMainWindow):
                 self.log_watcher.request_table_stats()
 
     def closeEvent(self, event) -> None:
-        """Ferme la fenêtre de range si elle est ouverte avant de quitter."""
+        """Arrête proprement les threads avant de quitter."""
         if self.range_window is not None:
             self.range_window.close()
+        if self.is_tracking:
+            self._stop_tracking()
+        if self._import_thread is not None:
+            self._import_thread.quit()
+            self._import_thread.wait(3000)
+            self._import_thread = None
+            self._import_watcher = None
         super().closeEvent(event)
 
     def _show_about(self) -> None:
@@ -595,10 +602,11 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About",
-            "PokerTH Tracker v1.0 by ollika\n\n"
+            "PokerTH Tracker v1 by ollika\n\n"
             "Real-time HUD for PokerTH\n\n"
             "Stats: VPIP, PFR, AF, 3-Bet, C-Bet,\n"
-            "Fold to 3-Bet, Fold to C-Bet, WTSD, W$SD\n\n"
+            "Fold to 3-Bet, Fold to C-Bet, WTSD, W$SD\n"
+            "Ranges\n\n"
             "LONG LIVE PokerTH !"
         )
 
@@ -636,6 +644,6 @@ class MainWindow(QMainWindow):
 
         if self.range_window is None:
             self.range_window = RangeWindow()
-            self.range_window.destroyed.connect(self._on_range_window_closed)
+            self.range_window.closed.connect(self._on_range_window_closed)
         self.range_window.update_data(player_name, self.stats_db.get_player_combos(player_name))
         self.show_range_btn.setText("Hide Range")
