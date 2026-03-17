@@ -224,22 +224,29 @@ class LogParser:
                 )
 
     def get_hands_played_by_player(self, player_name: str) -> set[tuple[int, int]]:
-        """Retourne l'ensemble des (game_id, hand_id) où le joueur était présent."""
+        """Retourne l'ensemble des (game_id, hand_id) où le joueur était présent.
+
+        Utilise la table Action pour ne compter que les mains où le joueur a
+        réellement joué (excluant les mains après son élimination).
+        """
         conn = self._connect()
         cursor = conn.execute(
-            "SELECT UniqueGameID FROM Player WHERE Player = ?",
+            "SELECT UniqueGameID, Seat FROM Player WHERE Player = ?",
             (player_name,)
         )
-        game_ids = [row["UniqueGameID"] for row in cursor]
-        if not game_ids:
+        player_games = {row["UniqueGameID"]: row["Seat"] for row in cursor}
+        if not player_games:
             return set()
 
-        placeholders = ",".join("?" * len(game_ids))
-        cursor = conn.execute(
-            f"SELECT UniqueGameID, HandID FROM Hand WHERE UniqueGameID IN ({placeholders})",
-            game_ids
-        )
-        return {(row["UniqueGameID"], row["HandID"]) for row in cursor}
+        result = set()
+        for game_id, seat in player_games.items():
+            cursor = conn.execute(
+                "SELECT DISTINCT HandID FROM Action WHERE UniqueGameID = ? AND Player = ?",
+                (game_id, seat)
+            )
+            for row in cursor:
+                result.add((game_id, row["HandID"]))
+        return result
 
     def hand_has_showdown(self, game_id: int, hand_id: int) -> bool:
         """Vérifie si une main a eu un showdown (round 4)."""
