@@ -248,6 +248,33 @@ class LogParser:
                 result.add((game_id, row["HandID"]))
         return result
 
+    def get_player_hand_stacks(self, player_name: str) -> dict[tuple[int, int], int]:
+        """Retourne {(game_id, hand_id): stack_au_début_de_la_main} pour un joueur."""
+        conn = self._connect()
+        cursor = conn.execute(
+            "SELECT UniqueGameID, Seat FROM Player WHERE Player = ?",
+            (player_name,)
+        )
+        player_games = {row["UniqueGameID"]: row["Seat"] for row in cursor}
+        if not player_games:
+            return {}
+
+        placeholders = ",".join("?" * len(player_games))
+        seat_cols = ", ".join(f"Seat_{i}_Cash" for i in range(1, 11))
+        cursor = conn.execute(
+            f"SELECT UniqueGameID, HandID, {seat_cols} FROM Hand WHERE UniqueGameID IN ({placeholders})",
+            list(player_games.keys())
+        )
+        result = {}
+        for row in cursor:
+            game_id = row["UniqueGameID"]
+            seat = player_games.get(game_id)
+            if seat is not None:
+                stack = row[f"Seat_{seat}_Cash"]
+                if stack is not None:
+                    result[(game_id, row["HandID"])] = stack
+        return result
+
     def hand_has_showdown(self, game_id: int, hand_id: int) -> bool:
         """Vérifie si une main a eu un showdown (round 4)."""
         conn = self._connect()

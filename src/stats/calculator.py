@@ -55,6 +55,10 @@ class StatsCalculator:
         # Récupère le siège du joueur pour chaque partie
         player_seats = self.parser.get_player_seats(player_name)
 
+        # Récupère le stack du joueur au début de chaque main (pour détecter
+        # les all-ins qui couvrent le stack → pas de vraie opportunité de 3-bet)
+        player_hand_stacks = self.parser.get_player_hand_stacks(player_name)
+
         # Analyse des actions preflop pour VPIP, PFR et 3-Bet
         preflop_by_hand: dict[tuple[int, int], list[HandAction]] = defaultdict(list)
         for action in self.parser.get_preflop_actions_by_player(player_name):
@@ -93,13 +97,14 @@ class StatsCalculator:
                 stats.pfr_hands += 1
                 pfr_hands.add(hand_key)
 
-            # Analyse 3-bet: y avait-il un raise avant que le joueur agisse?
+            # Analyse 3-bet
             game_id, hand_id = hand_key
             player_seat = player_seats.get(game_id)
             if player_seat is not None and hand_key in all_preflop_by_hand:
                 all_actions = all_preflop_by_hand[hand_key]
+                player_stack = player_hand_stacks.get(hand_key)
                 three_bet_result = self._analyze_three_bet(
-                    all_actions, player_seat, actions
+                    all_actions, player_seat, actions, player_stack
                 )
                 if three_bet_result["opportunity"]:
                     stats.three_bet_opportunities += 1
@@ -205,42 +210,88 @@ class StatsCalculator:
         self,
         all_preflop_actions: list[HandAction],
         player_seat: int,
-        player_actions: list[HandAction]
+        player_actions: list[HandAction],
+        player_stack: int | None = None,
     ) -> dict[str, bool]:
         """Analyse si le joueur avait une opportunité de 3-bet et s'il l'a fait.
 
         3-Bet = re-raise après qu'un autre joueur ait raise.
+
+        Corrections vs l'ancienne implémentation :
+        - "starts as dealer" ignoré (comme les blindes) — évitait de détecter
+          le raise qui suit quand le joueur est dealer.
+        - Scénario limp-raise : si le joueur call puis fait face à un raise,
+          l'opportunité est bien détectée (l'ancienne version s'arrêtait au 1er call).
+        - "is all in with" comptait comme 3-bet même quand le joueur *callait*
+          all-in (montant < raise précédent). Maintenant on compare les montants.
+        - All-in qui couvre le stack du joueur : pas d'opportunité réelle
+          (le joueur ne peut que fold ou call, pas re-raise).
         """
         result = {"opportunity": False, "made": False}
 
-        # Cherche s'il y a eu un raise avant la première action du joueur
-        raise_before_player = False
-        player_first_action_index = None
+        # Actions à ignorer (non-décisions de mise)
+        SKIP_PATTERNS = {"blind", "starts as dealer", "shows", "wins"}
+
+        def is_skip(action_str: str) -> bool:
+            low = action_str.lower()
+            return any(s in low for s in SKIP_PATTERNS)
+
+        # Trouve le dernier raise adverse valide : celui après lequel le joueur
+        # a une vraie action ET que le joueur peut théoriquement re-raiser.
+        last_valid_raise_idx = -1
+        last_raise_amount = 0
 
         for i, action in enumerate(all_preflop_actions):
-            if action.player_seat == player_seat:
-                # Ignore les blindes
-                if "blind" not in action.action.lower():
-                    player_first_action_index = i
-                    break
-
-            # Un autre joueur a raise
+            if action.player_seat == player_seat or is_skip(action.action):
+                continue
             action_type = action.action.lower()
-            if any(r in action_type for r in self.RAISE_ACTIONS):
-                raise_before_player = True
+            if not any(r in action_type for r in self.RAISE_ACTIONS):
+                continue
 
-        # Si quelqu'un a raise avant le joueur, c'est une opportunité de 3-bet
-        if raise_before_player and player_first_action_index is not None:
-            result["opportunity"] = True
+            raise_amount = action.amount or 0
 
-            # Vérifie si le joueur a re-raise
-            for action in player_actions:
-                action_type = action.action.lower()
-                if "blind" in action_type:
+            # Le joueur doit avoir au moins une action réelle après ce raise
+            player_has_response = any(
+                a.player_seat == player_seat and not is_skip(a.action)
+                for a in all_preflop_actions[i + 1:]
+            )
+            if not player_has_response:
+                continue
+
+            # All-in : deux cas où il n'y a pas de vraie opportunité de 3-bet
+            if "is all in with" in action_type:
+                # 1) Le raise couvre le stack du joueur → il ne peut que fold/call
+                if player_stack is not None and player_stack <= raise_amount:
                     continue
-                if any(r in action_type for r in self.RAISE_ACTIONS):
+                # 2) Heads-up vs all-in : personne d'autre ne peut répondre à un
+                #    éventuel re-raise, donc la décision se réduit à fold ou call
+                allin_seat = action.player_seat
+                others_can_respond = any(
+                    a.player_seat != player_seat and a.player_seat != allin_seat
+                    and not is_skip(a.action)
+                    for a in all_preflop_actions[i + 1:]
+                )
+                if not others_can_respond:
+                    continue
+
+            last_valid_raise_idx = i
+            last_raise_amount = raise_amount
+
+        if last_valid_raise_idx == -1:
+            return result
+
+        result["opportunity"] = True
+
+        # Vérifie si le joueur a re-raise après le dernier raise valide :
+        # sa première vraie action doit être un raise avec montant > raise précédent
+        for action in all_preflop_actions[last_valid_raise_idx + 1:]:
+            if action.player_seat != player_seat or is_skip(action.action):
+                continue
+            # Première vraie action du joueur après le raise
+            if any(r in action.action.lower() for r in self.RAISE_ACTIONS):
+                if (action.amount or 0) > last_raise_amount:
                     result["made"] = True
-                    break
+            break  # Une seule action compte
 
         return result
 
