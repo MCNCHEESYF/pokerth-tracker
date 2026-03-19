@@ -409,7 +409,9 @@ class MainWindow(QMainWindow):
 
     def _update_stats_table(self, stats: dict[str, PlayerStats]) -> None:
         """Met à jour le tableau des stats."""
-        # Désactive le tri pendant la mise à jour (performance)
+        # Désactive les mises à jour visuelles et les signaux pendant le remplissage
+        self.stats_table.setUpdatesEnabled(False)
+        self.stats_table.blockSignals(True)
         self.stats_table.setSortingEnabled(False)
         self.stats_table.setRowCount(len(stats))
 
@@ -464,8 +466,10 @@ class MainWindow(QMainWindow):
             hands_val = player_stats.total_hands
             self.stats_table.setItem(row, 10, NumericTableWidgetItem(str(hands_val), hands_val))
 
-        # Réactive le tri (garde le tri actuel de l'utilisateur)
+        # Réactive le tri et les mises à jour visuelles
         self.stats_table.setSortingEnabled(True)
+        self.stats_table.blockSignals(False)
+        self.stats_table.setUpdatesEnabled(True)
 
     def _clear_stats(self) -> None:
         """Efface toutes les stats."""
@@ -509,6 +513,7 @@ class MainWindow(QMainWindow):
         self._import_watcher.moveToThread(self._import_thread)
 
         self._import_watcher.import_progress.connect(self._on_import_progress)
+        self._import_watcher.import_loading_stats.connect(self._on_import_loading_stats)
         self._import_watcher.import_finished.connect(self._on_import_finished)
         self._import_watcher.import_error.connect(self._on_import_error)
 
@@ -560,6 +565,11 @@ class MainWindow(QMainWindow):
             self._import_progress.setMaximum(total)
             self._import_progress.setValue(current)
             self._import_progress.setLabelText(f"Import: {filename}")
+
+    def _on_import_loading_stats(self) -> None:
+        """Appelé quand le worker charge les stats post-import (barre à 100%)."""
+        if self._import_progress:
+            self._import_progress.setLabelText("Loading statistics...")
 
     def _on_import_finished(self, imported: int, stats: dict[str, PlayerStats]) -> None:
         """Appelé quand l'import est terminé — ferme le dialog pour sortir de exec()."""

@@ -30,6 +30,7 @@ class LogWatcher(QObject):
     # Signaux de résultat (pour les appels asynchrones depuis un autre thread)
     table_stats_ready = pyqtSignal(dict)  # Résultat de get_table_stats()
     import_progress = pyqtSignal(int, int, str)  # Progrès import (current, total, filename)
+    import_loading_stats = pyqtSignal()          # Lecture DB post-import en cours
     import_finished = pyqtSignal(int, dict)  # Résultat import (nombre de fichiers, stats)
     import_error = pyqtSignal(str)  # Erreur lors de l'import
 
@@ -382,7 +383,11 @@ class LogWatcher(QObject):
             # Récupère les stats seulement si des fichiers ont été importés.
             # Avec 0 fichiers, la DB n'a pas changé : évite une lecture coûteuse
             # proportionnelle à la taille de la base (cause du hang visible).
-            all_stats = self.stats_db.get_all_players_stats() if imported > 0 else {}
+            if imported > 0:
+                self.import_loading_stats.emit()
+                all_stats = self.stats_db.get_all_players_stats()
+            else:
+                all_stats = {}
             self.import_finished.emit(imported, all_stats)
         except Exception as e:
             self.import_error.emit(str(e))
