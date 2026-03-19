@@ -52,7 +52,10 @@ class MainWindow(QMainWindow):
         # Thread et watcher temporaires pour l'import
         self._import_thread: QThread | None = None
         self._import_watcher: LogWatcher | None = None
+        self._import_result_count: int = 0
+        self._import_error_msg: str | None = None
         self._import_progress: QProgressDialog | None = None
+        self._closing: bool = False
         # Cache des stats et joueurs de la table pour le filtrage
         self._all_stats: dict[str, PlayerStats] = {}
         self._table_players: list[str] = []
@@ -285,39 +288,43 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Tracking active - waiting for data...")
 
     def _stop_tracking(self) -> None:
-        """Arrête le tracking."""
-        if self.log_watcher and self._watcher_thread:
-            # Invoque stop() dans le thread du watcher (thread-safe)
-            QMetaObject.invokeMethod(
-                self.log_watcher, "stop",
-                Qt.ConnectionType.QueuedConnection
-            )
-            # Demande au thread de quitter (après stop())
-            self._watcher_thread.quit()
-            # Attend la fin du thread avec timeout
-            if not self._watcher_thread.wait(5000):
-                self._watcher_thread.terminate()
-                self._watcher_thread.wait(1000)
-            self._watcher_thread = None
+        """Arrête le tracking (non-bloquant)."""
+        if not (self.log_watcher and self._watcher_thread):
+            return
 
-        # Persiste les mains jouées (le thread est arrêté, pas de conflit)
-        if self.log_watcher:
-            self.log_watcher.save_pending_stats()
-
+        thread = self._watcher_thread
+        watcher = self.log_watcher
+        self._watcher_thread = None
         self.log_watcher = None
-
         self.is_tracking = False
+
+        # Désactive les contrôles pendant l'arrêt async
+        self.start_btn.setEnabled(False)
+
+        thread.finished.connect(lambda: self._on_tracking_finished(watcher, thread))
+        QMetaObject.invokeMethod(watcher, "stop", Qt.ConnectionType.QueuedConnection)
+        thread.quit()
+
+    def _on_tracking_finished(self, watcher, thread) -> None:
+        """Appelé quand le thread de tracking s'est arrêté."""
+        watcher.save_pending_stats()
+        watcher.deleteLater()
+        thread.deleteLater()
+
+        if getattr(self, '_closing', False):
+            self.close()
+            return
+
         self.start_btn.setText("Start tracking")
+        self.start_btn.setEnabled(True)
         self.show_hud_btn.setEnabled(False)
         self.show_hud_btn.setText("Show HUD")
         self.refresh_btn.setEnabled(True)
         self.import_action.setEnabled(True)
 
-        # Cache le HUD
         if self.hud:
             self.hud.hide()
 
-        # Recharge les stats de la DB pour afficher tous les joueurs
         self._all_stats = self.stats_db.get_all_players_stats()
         self._refresh_table_display()
         self.status_bar.showMessage("Tracking stopped")
@@ -507,17 +514,45 @@ class MainWindow(QMainWindow):
 
         self._import_thread.started.connect(self._import_watcher.request_import_all_logs)
 
-        # Progress dialog
+        self._import_result_count = 0
+        self._import_error_msg = None
+
+        # exec() gère correctement la boucle d'événements modale sur Windows.
+        # Les handlers _on_import_finished/_on_import_canceled appellent
+        # accept()/reject() pour en sortir proprement.
         self._import_progress = QProgressDialog(
             "Import in progress...", "Cancel", 0, len(pdb_files), self
         )
         self._import_progress.setWindowTitle("Import history")
-        self._import_progress.setModal(True)
+        self._import_progress.setWindowModality(Qt.WindowModality.WindowModal)
+        self._import_progress.setAutoClose(False)
+        self._import_progress.setAutoReset(False)
         self._import_progress.canceled.connect(self._on_import_canceled)
-        self._import_progress.show()
 
-        # Démarre le thread
         self._import_thread.start()
+
+        # Bloque ici en exécutant une boucle d'événements propre.
+        # Les signaux du thread worker sont traités dans cette boucle.
+        result = self._import_progress.exec()
+
+        # exec() est retourné — nettoyage
+        self._import_progress = None
+        self._cleanup_thread()
+
+        if result == QProgressDialog.DialogCode.Accepted:
+            QMessageBox.information(
+                self,
+                "Import completed",
+                f"{self._import_result_count} files imported successfully.\n"
+                f"{len(self._all_stats)} players in database."
+            )
+            if self._import_result_count > 0:
+                self._refresh_table_display()
+            self.status_bar.showMessage(f"Import completed: {self._import_result_count} files")
+        elif self._import_error_msg:
+            QMessageBox.warning(self, "Error", f"Error during import:\n{self._import_error_msg}")
+        else:
+            self.status_bar.showMessage("Import canceled")
 
     def _on_import_progress(self, current: int, total: int, filename: str) -> None:
         """Appelé lors de la progression de l'import."""
@@ -527,52 +562,38 @@ class MainWindow(QMainWindow):
             self._import_progress.setLabelText(f"Import: {filename}")
 
     def _on_import_finished(self, imported: int, stats: dict[str, PlayerStats]) -> None:
-        """Appelé quand l'import est terminé."""
-        # Remplace la progress dialog par le summary sans délai visible
+        """Appelé quand l'import est terminé — ferme le dialog pour sortir de exec()."""
+        if stats:  # vide si imported == 0 (stats inchangées)
+            self._all_stats = stats
+        self._import_result_count = imported
         if self._import_progress:
-            self._import_progress.close()
-            self._import_progress = None
-
-        self._all_stats = stats
-
-        QMessageBox.information(
-            self,
-            "Import completed",
-            f"{imported} files imported successfully.\n"
-            f"{len(self._all_stats)} players in database."
-        )
-
-        # Nettoyage et rafraîchissement après que l'utilisateur a cliqué OK
-        self._cleanup_thread()
-        self._refresh_table_display()
-        self.status_bar.showMessage(f"Import completed: {imported} files")
+            self._import_progress.canceled.disconnect(self._on_import_canceled)
+            self._import_progress.accept()
 
     def _on_import_error(self, error: str) -> None:
         """Appelé en cas d'erreur lors de l'import."""
+        self._import_error_msg = error
         if self._import_progress:
-            self._import_progress.close()
-            self._import_progress = None
-
-        QMessageBox.warning(self, "Error", f"Error during import:\n{error}")
-        self._cleanup_thread()
+            self._import_progress.canceled.disconnect(self._on_import_canceled)
+            self._import_progress.reject()
 
     def _on_import_canceled(self) -> None:
         """Appelé quand l'utilisateur annule l'import."""
         if self._import_progress:
-            self._import_progress.close()
-            self._import_progress = None
-
-        self._cleanup_thread()
-        self.status_bar.showMessage("Import canceled")
+            self._import_progress.canceled.disconnect(self._on_import_canceled)
+            self._import_progress.reject()
 
     def _cleanup_thread(self) -> None:
         """Arrête et libère le thread d'import sans bloquer le thread UI."""
         if self._import_thread:
             thread = self._import_thread
+            watcher = self._import_watcher
             self._import_thread = None
+            self._import_watcher = None
+            if watcher:
+                watcher.deleteLater()
             thread.quit()
             thread.finished.connect(thread.deleteLater)
-        self._import_watcher = None
 
     def _open_hud_settings(self) -> None:
         """Ouvre la fenêtre de configuration du HUD."""
@@ -589,12 +610,19 @@ class MainWindow(QMainWindow):
         if self.range_window is not None:
             self.range_window.close()
         if self.is_tracking:
+            # Arrêt async : on reporte la fermeture jusqu'à la fin du thread
+            event.ignore()
+            self._closing = True
             self._stop_tracking()
+            return
         if self._import_thread is not None:
-            self._import_thread.quit()
-            self._import_thread.wait(3000)
+            thread = self._import_thread
             self._import_thread = None
+            if self._import_watcher:
+                self._import_watcher.deleteLater()
             self._import_watcher = None
+            thread.quit()
+            thread.finished.connect(thread.deleteLater)
         super().closeEvent(event)
 
     def _show_about(self) -> None:

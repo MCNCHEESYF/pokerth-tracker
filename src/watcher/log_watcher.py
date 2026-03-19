@@ -379,8 +379,10 @@ class LogWatcher(QObject):
                 self.import_progress.emit(current, total, filename)
 
             imported = self.import_all_logs(progress_callback)
-            # Récupère les stats dans ce thread (pas dans le thread UI)
-            all_stats = self.stats_db.get_all_players_stats()
+            # Récupère les stats seulement si des fichiers ont été importés.
+            # Avec 0 fichiers, la DB n'a pas changé : évite une lecture coûteuse
+            # proportionnelle à la taille de la base (cause du hang visible).
+            all_stats = self.stats_db.get_all_players_stats() if imported > 0 else {}
             self.import_finished.emit(imported, all_stats)
         except Exception as e:
             self.import_error.emit(str(e))
