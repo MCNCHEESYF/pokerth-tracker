@@ -6,12 +6,20 @@ import sys
 import argparse
 from pathlib import Path
 
+# Windows : définir l'AppUserModelID pour que l'icône s'affiche dans la barre des tâches
+if sys.platform == "win32":
+    import ctypes
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+        "PTHTracker.PokerTHTracker"
+    )
+
 # Force XWayland pour que le HUD reste au premier plan (Linux uniquement)
 if sys.platform == "linux":
     os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 
 from src.ui.main_window import MainWindow
 from src.stats.calculator import calculate_stats_from_file
@@ -44,7 +52,16 @@ def main():
     # Style global
     app.setStyle("Fusion")
 
-   
+    # Icône de l'application (barre des tâches + fenêtre)
+    if getattr(sys, 'frozen', False):
+        # Exécutable PyInstaller
+        icon_path = Path(sys._MEIPASS) / "pokerth-tracker.ico"
+    else:
+        # Développement
+        icon_path = Path(__file__).parent / "windows" / "pokerth-tracker.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+
     # Mode normal - fenêtre principale
     window = MainWindow()
     window.show()

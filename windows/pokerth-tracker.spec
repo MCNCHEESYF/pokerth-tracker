@@ -15,8 +15,7 @@ a = Analysis(
     pathex=[str(Path.cwd().parent)],
     binaries=[],
     datas=[
-        # Ajoutez ici vos ressources supplémentaires si nécessaire
-        # ('path/to/resources', 'destination_folder'),
+        ('pokerth-tracker.ico', '.'),
     ],
     hiddenimports=[
         'PyQt6.QtCore',
